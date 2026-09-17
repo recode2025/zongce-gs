@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  Button, Card, Col, Empty, Form, Input, Row, Spin, Table, Tabs, Tag, Tooltip, message,
+  Button, Card, Col, Empty, Form, Grid, Input, Row, Spin, Table, Tabs, Tag, Tooltip, message,
 } from 'antd';
 import { api } from './api.js';
 
@@ -96,10 +96,13 @@ function LoginView({ onLogin }) {
 
 /* ================= 明细表 ================= */
 function CategoryTable({ category, color }) {
+  // 手机端（<768px）收紧「得分/备注」定宽并改紧凑行距，
+  // 否则两列桌面定宽会把「测评项目」列挤成一字一行的竖排
+  const compact = Grid.useBreakpoint().md === false;
   const rows = (category.items ?? []).map((it, i) => ({ key: i, ...it }));
   return (
     <Table
-      size="middle"
+      size={compact ? 'small' : 'middle'}
       pagination={false}
       dataSource={rows}
       summary={() => (
@@ -118,7 +121,7 @@ function CategoryTable({ category, color }) {
         dataIndex="value"
         key="value"
         align="right"
-        width={140}
+        width={compact ? 88 : 140}
         render={(v) => {
           if (v === null || v === undefined) {
             return <Tag color="orange">缓考，未进行计算</Tag>;
@@ -131,7 +134,7 @@ function CategoryTable({ category, color }) {
         title="备注"
         dataIndex="note"
         key="note"
-        width={200}
+        width={compact ? 110 : 200}
         render={(n) => (n && n.indexOf('缓考') < 0 ? <Tag color="default">{n}</Tag> : null)}
       />
     </Table>
