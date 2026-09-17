@@ -16,7 +16,7 @@ const queryLimiter = makeIpLimiter({ max: 60, message: '查询过于频繁，请
 function maskRank(record) {
   const d = record.data;
   const judgeRank = config.hideRule === 'major' ? d.majorRank : d.totalRank;
-  const hidden = Number.isFinite(judgeRank) && judgeRank > 0 && judgeRank <= config.hideTopN;
+  const hidden = config.hideTopN > 0 && Number.isFinite(judgeRank) && judgeRank > 0 && judgeRank <= config.hideTopN;
   return {
     majorRank: hidden ? null : (d.majorRank ?? null),
     majorCount: d.majorCount ?? null,
