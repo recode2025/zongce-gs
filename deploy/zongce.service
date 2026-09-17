@@ -1,0 +1,35 @@
+# /etc/systemd/system/zongce.service
+# 安装: cp deploy/zongce.service /etc/systemd/system/ && systemctl daemon-reload
+# 启动: systemctl enable --now zongce
+# 看日志: journalctl -u zongce -f
+# 导入新数据后热重载（不停服）: systemctl kill -s HUP zongce
+
+[Unit]
+Description=Zongce Comprehensive Evaluation Query Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/zongce
+Environment=NODE_ENV=production
+EnvironmentFile=/opt/zongce/.env
+ExecStart=/usr/bin/node server/index.js
+Restart=always
+RestartSec=3
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+# 4c4g 机器的资源约束
+LimitNOFILE=65535
+MemoryMax=3G
+
+# 基础加固
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/opt/zongce/data
+
+[Install]
+WantedBy=multi-user.target
