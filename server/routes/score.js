@@ -69,13 +69,16 @@ const fmtCategory = (cat) => ({
 router.get('/api/me', (req, res) => {
   const session = readSession(req);
   res.set('Cache-Control', 'no-store');
+  // 与其它接口一致包在 data 里（前端 api() 统一返回 body.data）
   res.json({
     ok: true,
-    loggedIn: !!session,
-    studentId: session?.studentId ?? null,
-    name: session?.name ?? null,
-    studentCount: store.size,
-    roundLabel: config.roundLabel,
+    data: {
+      loggedIn: !!session,
+      studentId: session?.studentId ?? null,
+      name: session?.name ?? null,
+      studentCount: store.size,
+      roundLabel: config.roundLabel,
+    },
   });
 });
 
