@@ -1,93 +1,120 @@
 import { useEffect, useState } from 'react';
 import {
-  Alert, Button, Card, Col, Empty, Grid, Row, Spin, Table, Tabs, Tag, Tooltip,
+  Alert, Button, Card, Col, Empty, Form, Grid, Input, Row, Spin, Table, Tabs, Tag,
 } from 'antd';
 import { api } from './api.js';
 
 // 图标用内联 SVG，避免打包整个 @ant-design/icons（省 ~600KB）
 const svgProps = { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' };
 const LogoutIcon = () => (<svg {...svgProps}><path d="M9 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" /></svg>);
-const InfoIcon = () => (<svg {...svgProps} width={13} height={13}><circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><path d="M12 8h.01" /></svg>);
-const ShieldIcon = () => (<svg {...svgProps} width={15} height={15}><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z" /><path d="M9.5 12l2 2 3.5-4" /></svg>);
-const ArrowIcon = () => (<svg {...svgProps} width={18} height={18}><path d="M5 12h14" /><path d="M13 6l6 6-6 6" /></svg>);
-const KeyIcon = () => (<svg {...svgProps} width={18} height={18}><circle cx="8" cy="15" r="4" /><path d="M10.8 12.2L20 3" /><path d="M16 7l3 3" /></svg>);
 
 // 三类得分用固定色相（文字一律用墨色，色块只承载类别身份）
 const CATEGORY_COLOR = { pinde: '#2a78d6', xueye: '#eb6834', wenti: '#1baf7a' };
 
 const DEFAULT_ROUND = '第二轮';
 const fmt = (v) => (typeof v === 'number' ? Number(v.toFixed(2)) : v);
-const hideTip = (round, topN) =>
-  `根据规定，${round}综测总排名前 ${topN ?? 30} 名的同学，其专业排名与总排名不予公布`;
-
-// CAS 回调失败时服务端以 ?login_error=CODE 带回首页
-const LOGIN_ERRORS = {
-  TICKET_INVALID: '登录票据校验失败，请重新登录',
-  BAD_INPUT: '登录票据缺失，请重新登录',
-  CAS_UNAVAILABLE: '学校统一认证服务暂时不可用，请稍后再试',
-  NO_USER_ID: '认证成功但未获取到学号信息，请联系管理员',
-  RATE_LIMITED: '登录尝试过于频繁，请 1 分钟后再试',
-  BUSY: '当前登录人数较多，请稍后再试',
-  INTERNAL: '服务异常，请稍后再试',
-};
-
-function takeLoginError() {
-  const params = new URLSearchParams(window.location.search);
-  const code = params.get('login_error');
-  if (!code) return null;
-  params.delete('login_error');
-  const qs = params.toString();
-  window.history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : ''));
-  return LOGIN_ERRORS[code] ?? `登录失败（${code}），请重试`;
-}
 
 /* ================= 登录页 ================= */
-function LoginView({ error, roundLabel }) {
-  const [jumping, setJumping] = useState(false);
-  const goCas = () => {
-    setJumping(true);
-    window.location.href = '/api/cas/login';
+function LoginView({ roundLabel, onLogin }) {
+  const [form] = Form.useForm();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [captcha, setCaptcha] = useState({ svg: '', token: '' });
+
+  const refreshCaptcha = async () => {
+    try {
+      setCaptcha(await api('/api/captcha'));
+    } catch {
+      /* 网络异常时保留旧图，提交时会得到明确报错 */
+    }
+  };
+
+  useEffect(() => {
+    refreshCaptcha();
+  }, []);
+
+  const submit = async ({ username, password, captchaText }) => {
+    setLoading(true);
+    setError(null);
+    try {
+      await api('/api/login', {
+        method: 'POST',
+        body: JSON.stringify({ username, password, captchaToken: captcha.token, captchaText }),
+      });
+      await onLogin();
+    } catch (e) {
+      setError(e.message);
+      // 验证码一次一用：无论何种失败都换图并清空输入
+      form.setFieldValue('captchaText', '');
+      refreshCaptcha();
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="login-bg">
-      <div className="login-grid" aria-hidden="true" />
-      <div className="login-wrap">
-        <section className="login-brand">
-          <div className="brand-mark">综测</div>
-          <div className="brand-school">大连外国语大学</div>
-          <h1 className="brand-title">综合素质评价<br />成绩查询</h1>
-          <div className="brand-round">
-            <span className="brand-round-dot" />
-            {roundLabel}结果公示中
-          </div>
-        </section>
+    <div className="lp">
+      <aside className="lp-side">
+        <div className="lp-head">
+          <span className="lp-seal">综测</span>
+          <span className="lp-school">大连外国语大学</span>
+        </div>
 
-        <Card className="login-card">
-          <div className="login-card-title">登录查询</div>
-          <div className="login-card-sub">使用学校统一身份认证，仅可查询本人成绩</div>
+        <div className="lp-intro">
+          <h1 className="lp-title">综合素质评价<br />成绩查询</h1>
+          <p className="lp-desc">
+            {roundLabel}综测结果公示期间，同学可登录查询本人的各项得分、专业排名与年级排名。
+          </p>
+          <dl className="lp-meta">
+            <div><dt>轮次</dt><dd>{roundLabel}</dd></div>
+            <div><dt>账号</dt><dd>数字大外统一身份认证</dd></div>
+            <div><dt>范围</dt><dd>仅可查询本人成绩</dd></div>
+          </dl>
+        </div>
 
-          {error && <Alert className="login-alert" type="error" showIcon message={error} />}
+        <div className="lp-side-foot">如对成绩有疑问，请在公示期内联系学院综测负责人</div>
+      </aside>
 
-          <Button type="primary" className="login-btn" block loading={jumping} onClick={goCas}>
-            {!jumping && <KeyIcon />}
-            统一身份认证登录
-            {!jumping && <ArrowIcon />}
-          </Button>
+      <main className="lp-main">
+        <div className="lp-form">
+          <h2 className="lp-form-title">登录</h2>
+          <p className="lp-form-sub">请使用「数字大外」账号和密码</p>
 
-          <ol className="login-steps">
-            <li>点击按钮跳转至学校统一身份认证页面</li>
-            <li>输入「数字大外」账号密码完成认证</li>
-            <li>自动返回本站并显示你的综测成绩</li>
-          </ol>
+          {error && <Alert className="lp-alert" type="error" showIcon message={error} />}
 
-          <div className="login-notice">
-            <ShieldIcon />
-            <span>本站不接触你的密码，认证全程在学校系统完成</span>
-          </div>
-        </Card>
-      </div>
-      <div className="login-foot">学生综合素质评价 · {roundLabel}</div>
+          <Form form={form} layout="vertical" size="large" onFinish={submit} requiredMark={false}>
+            <Form.Item label="学号" name="username" rules={[{ required: true, message: '请输入学号' }]}>
+              <Input placeholder="9 位学号" autoComplete="username" inputMode="numeric" autoFocus />
+            </Form.Item>
+            <Form.Item label="密码" name="password" rules={[{ required: true, message: '请输入密码' }]}>
+              <Input.Password placeholder="统一身份认证密码" autoComplete="current-password" />
+            </Form.Item>
+            <Form.Item label="验证码" required>
+              <div className="captcha-row">
+                <Form.Item name="captchaText" noStyle rules={[{ required: true, message: '请输入验证码' }]}>
+                  <Input placeholder="右侧字符" maxLength={4} autoComplete="off" />
+                </Form.Item>
+                <button
+                  type="button"
+                  className="captcha-img"
+                  title="看不清？点击换一张"
+                  aria-label="验证码图片，点击换一张"
+                  onClick={refreshCaptcha}
+                  dangerouslySetInnerHTML={{ __html: captcha.svg }}
+                />
+              </div>
+            </Form.Item>
+            <Button type="primary" htmlType="submit" className="lp-submit" block loading={loading}>
+              登录并查询
+            </Button>
+          </Form>
+
+          <p className="lp-note">
+            密码仅用于向学校统一身份认证核验身份，本站不保存。
+          </p>
+        </div>
+        <div className="lp-main-foot">学生综合素质评价 · {roundLabel}</div>
+      </main>
     </div>
   );
 }
@@ -159,25 +186,18 @@ function CategoryTable({ category }) {
 }
 
 /* ================= 排名块 ================= */
-function RankBlock({ title, rank, denom, hidden, absent, tip }) {
+function RankBlock({ title, rank, denom, absent }) {
   return (
     <div className="rank-block">
       <div className="rank-title">{title}</div>
-      {hidden ? (
-        <Tooltip title={tip}>
-          <div className="rank-hidden">
-            <span className="rank-hidden-badge">不公布</span>
-            <div className="rank-sub"><InfoIcon /> 按规定不予公布</div>
-          </div>
-        </Tooltip>
-      ) : absent ? (
+      {absent ? (
         <div>
           <div className="rank-num stat-value-muted">—</div>
           <div className="rank-sub">该专业未参与年级排名</div>
         </div>
       ) : (
         <div className="rank-num">
-          {rank}
+          {rank ?? '–'}
           <span className="rank-denom"> / {denom ?? '–'}</span>
         </div>
       )}
@@ -190,7 +210,6 @@ function ResultView({ data, onLogout }) {
   const { rank, categories } = data;
   const total = fmt(data.total) ?? 0;
   const roundLabel = data.roundLabel ?? DEFAULT_ROUND;
-  const tip = hideTip(roundLabel, data.hideTopN);
 
   return (
     <>
@@ -266,8 +285,6 @@ function ResultView({ data, onLogout }) {
                 title={`专业排名 · ${data.major}`}
                 rank={rank.majorRank}
                 denom={rank.majorCount}
-                hidden={rank.rankHidden}
-                tip={tip}
               />
             </Col>
             <Col xs={24} sm={12}>
@@ -275,9 +292,7 @@ function ResultView({ data, onLogout }) {
                 title="年级总排名"
                 rank={rank.totalRank}
                 denom={rank.totalCount}
-                hidden={rank.rankHidden}
-                absent={!rank.rankHidden && rank.totalRank == null}
-                tip={tip}
+                absent={rank.totalRank == null}
               />
             </Col>
           </Row>
@@ -320,12 +335,12 @@ function NoRecordView({ onLogout, me }) {
           {me?.studentId && (
             <div className="norecord-info">
               <div>
-                当前登录账号：<strong>{me.studentId}</strong>
+                当前登录学号：<strong>{me.studentId}</strong>
                 {me.name ? `（${me.name}）` : ''}
               </div>
               <div>{roundLabel}综测共覆盖 {me.studentCount ?? '–'} 名同学（软件学院各专业）</div>
               <div className="norecord-tip">
-                若学号与上面显示的不一致，说明学校认证返回的账号并非你的学号，请联系管理员
+                若上面显示的学号与你的不一致，请联系管理员
               </div>
             </div>
           )}
@@ -340,32 +355,32 @@ export default function App() {
   const [view, setView] = useState('boot'); // boot | login | result | norecord
   const [data, setData] = useState(null);
   const [me, setMe] = useState(null);
-  const [loginError, setLoginError] = useState(null);
+
+  const load = async () => {
+    try {
+      const meRes = await api('/api/me');
+      setMe(meRes);
+      if (!meRes.loggedIn) return setView('login');
+      setData(await api('/api/score'));
+      setView('result');
+    } catch (e) {
+      setView(e.code === 'NO_RECORD' ? 'norecord' : 'login');
+    }
+  };
 
   useEffect(() => {
-    const err = takeLoginError();
-    (async () => {
-      let meRes = null;
-      try {
-        meRes = await api('/api/me');
-        setMe(meRes);
-        if (!meRes.loggedIn) {
-          setLoginError(err);
-          return setView('login');
-        }
-        setData(await api('/api/score'));
-        setView('result');
-      } catch (e) {
-        if (e.code === 'NO_RECORD') return setView('norecord');
-        if (!meRes) setLoginError(e.message);
-        setView('login');
-      }
-    })();
+    load();
   }, []);
 
-  // 走服务端跳转：清本站会话后一并登出学校 CAS
-  const logout = () => {
-    window.location.href = '/api/logout';
+  const logout = async () => {
+    try {
+      await api('/api/logout', { method: 'POST' });
+    } catch {
+      /* 会话 cookie 会自然过期，前端照常回到登录页 */
+    }
+    setData(null);
+    setMe((m) => (m ? { ...m, loggedIn: false, studentId: null, name: null } : m));
+    setView('login');
   };
 
   if (view === 'boot') {
@@ -375,7 +390,7 @@ export default function App() {
       </div>
     );
   }
-  if (view === 'login') return <LoginView error={loginError} roundLabel={me?.roundLabel ?? DEFAULT_ROUND} />;
+  if (view === 'login') return <LoginView roundLabel={me?.roundLabel ?? DEFAULT_ROUND} onLogin={load} />;
   if (view === 'norecord') return <NoRecordView onLogout={logout} me={me} />;
   return <ResultView data={data} onLogout={logout} />;
 }

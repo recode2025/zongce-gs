@@ -1,12 +1,15 @@
 :root {
-  --ink: rgba(10, 20, 45, 0.88);
-  --ink-2: rgba(10, 20, 45, 0.58);
-  --ink-3: rgba(10, 20, 45, 0.4);
-  --line: #e7ebf3;
-  --bg: #f3f5fa;
-  --brand: #2a5fd0;
-  --brand-2: #5b4fe0;
-  --navy: #0f1d4a;
+  --ink: rgba(20, 26, 40, 0.9);
+  --ink-2: rgba(20, 26, 40, 0.6);
+  --ink-3: rgba(20, 26, 40, 0.42);
+  --line: #e6e2d9;
+  --line-strong: #d6d1c6;
+  --paper: #f6f4ef;
+  --bg: var(--paper);
+  --brand: #1d4f91;
+  --navy: #18294a;
+  --seal: #a8322a;
+  --serif: 'Songti SC', 'STSong', 'Noto Serif SC', 'Source Han Serif SC', 'SimSun', serif;
 }
 
 html,
@@ -40,244 +43,245 @@ body {
   }
 }
 
-/* ===== 登录页 ===== */
-.login-bg {
-  position: relative;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 32px 16px;
-  box-sizing: border-box;
-  overflow: hidden;
-  background:
-    radial-gradient(700px 500px at 12% 8%, rgba(79, 140, 255, 0.35), transparent 60%),
-    radial-gradient(760px 560px at 92% 100%, rgba(140, 100, 255, 0.32), transparent 60%),
-    linear-gradient(160deg, #0b1640 0%, #172f7a 48%, #2e2a86 100%);
-}
-
-/* 细网格底纹（纯 CSS，无图片请求） */
-.login-grid {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-  background-size: 44px 44px;
-  mask-image: radial-gradient(ellipse at center, #000 30%, transparent 75%);
-  -webkit-mask-image: radial-gradient(ellipse at center, #000 30%, transparent 75%);
-}
-
-.login-wrap {
-  position: relative;
-  z-index: 1;
-  width: 100%;
-  max-width: 920px;
-  display: grid;
-  grid-template-columns: 1fr 400px;
-  gap: 56px;
-  align-items: center;
-  animation: fade-up 0.5s ease-out both;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .login-wrap,
   .page > * {
     animation: none !important;
   }
 }
 
-.login-brand {
+/* ===== 登录页 ===== */
+.lp {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(440px, 46%);
+  background: var(--paper);
+}
+
+.lp-side {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 40px;
+  padding: 52px 64px 44px;
+  background: var(--navy);
+  color: #e8ecf3;
+}
+
+/* 内框细线，取证书/公文版式的意思 */
+.lp-side::before {
+  content: '';
+  position: absolute;
+  inset: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  pointer-events: none;
+}
+
+.lp-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.lp-seal {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  writing-mode: vertical-rl;
+  font-family: var(--serif);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #fff;
+  background: var(--seal);
+  border-radius: 3px;
+}
+
+.lp-school {
+  font-size: 15px;
+  letter-spacing: 5px;
+  color: rgba(232, 236, 243, 0.85);
+}
+
+.lp-intro {
+  max-width: 460px;
+}
+
+.lp-title {
+  margin: 0 0 22px;
+  font-family: var(--serif);
+  font-size: 46px;
+  font-weight: 600;
+  line-height: 1.32;
+  letter-spacing: 4px;
   color: #fff;
 }
 
-.brand-mark {
-  width: 60px;
-  height: 60px;
-  border-radius: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  backdrop-filter: blur(8px);
-  margin-bottom: 26px;
-}
-
-.brand-school {
-  font-size: 14px;
-  letter-spacing: 6px;
-  color: rgba(255, 255, 255, 0.65);
-  margin-bottom: 10px;
-}
-
-.brand-title {
+.lp-desc {
   margin: 0;
-  font-size: 42px;
-  line-height: 1.25;
-  font-weight: 700;
-  letter-spacing: 2px;
+  font-size: 14.5px;
+  line-height: 1.9;
+  color: rgba(232, 236, 243, 0.68);
 }
 
-.brand-round {
-  display: inline-flex;
+.lp-meta {
+  margin: 36px 0 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.lp-meta > div {
+  display: flex;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  font-size: 14px;
+}
+
+.lp-meta dt {
+  flex: none;
+  width: 64px;
+  color: rgba(232, 236, 243, 0.5);
+}
+
+.lp-meta dd {
+  margin: 0;
+}
+
+.lp-side-foot {
+  font-size: 12.5px;
+  color: rgba(232, 236, 243, 0.45);
+}
+
+.lp-main {
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  margin-top: 24px;
-  padding: 6px 14px;
-  border-radius: 999px;
-  font-size: 13.5px;
-  color: rgba(255, 255, 255, 0.9);
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 48px 24px 24px;
 }
 
-.brand-round-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #4ade80;
-  box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.2);
-}
-
-.login-card {
+.lp-form {
   width: 100%;
-  border-radius: 20px;
-  border: none;
-  box-shadow: 0 30px 80px rgba(5, 12, 40, 0.5);
+  max-width: 360px;
+  margin: auto 0;
 }
 
-.login-card .ant-card-body {
-  padding: 34px 32px 26px;
-}
-
-.login-card-title {
-  font-size: 22px;
-  font-weight: 650;
+.lp-form-title {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: 3px;
   color: var(--ink);
 }
 
-.login-card-sub {
+.lp-form-sub {
+  margin: 8px 0 28px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.lp-alert {
+  margin-bottom: 20px;
+}
+
+.lp .ant-form-item-label > label {
   font-size: 13.5px;
   color: var(--ink-2);
-  margin-top: 6px;
-  margin-bottom: 24px;
 }
 
-.login-alert {
-  margin-bottom: 16px;
+.lp .ant-input,
+.lp .ant-input-affix-wrapper {
+  border-color: var(--line-strong);
 }
 
-.login-btn.ant-btn {
-  height: 50px;
-  font-size: 16px;
-  font-weight: 600;
-  letter-spacing: 1px;
-  border-radius: 12px;
-  border: none;
-  gap: 10px;
-  background: linear-gradient(135deg, #3268dc 0%, #5b4fe0 100%);
-  box-shadow: 0 10px 24px rgba(66, 90, 220, 0.35);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-
-.login-btn.ant-btn:not(:disabled):hover {
-  background: linear-gradient(135deg, #3d74e6 0%, #6a5ff0 100%) !important;
-  transform: translateY(-1px);
-  box-shadow: 0 14px 28px rgba(66, 90, 220, 0.42);
-}
-
-.login-steps {
-  list-style: none;
-  counter-reset: step;
-  margin: 24px 0 0;
-  padding: 0;
-  display: grid;
-  gap: 12px;
-}
-
-.login-steps li {
-  counter-increment: step;
+.captcha-row {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 13.5px;
-  color: var(--ink-2);
+  gap: 10px;
 }
 
-.login-steps li::before {
-  content: counter(step);
+.captcha-img {
   flex: none;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
+  width: 116px;
+  height: 40px;
+  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--brand);
-  background: #eef3ff;
+  overflow: hidden;
+  cursor: pointer;
+  background: #f3f1ec;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
 }
 
-.login-notice {
-  margin-top: 22px;
-  padding: 10px 14px;
-  border-radius: 10px;
-  background: #f4f7fd;
-  color: var(--ink-2);
+.captcha-img:hover {
+  border-color: var(--brand);
+}
+
+.captcha-img:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+
+.captcha-img svg {
+  display: block;
+  width: 108px;
+  height: 38px;
+}
+
+.lp-submit.ant-btn {
+  height: 46px;
+  margin-top: 6px;
+  font-size: 15px;
+  letter-spacing: 2px;
+  box-shadow: none;
+}
+
+.lp-note {
+  margin: 18px 0 0;
   font-size: 12.5px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  line-height: 1.55;
+  line-height: 1.7;
+  color: var(--ink-3);
 }
 
-.login-notice svg {
-  flex: none;
-  color: #1baf7a;
-}
-
-.login-foot {
-  position: relative;
-  z-index: 1;
-  margin-top: 36px;
+.lp-main-foot {
+  margin-top: 40px;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.45);
   letter-spacing: 1px;
+  color: var(--ink-3);
 }
 
-@media (max-width: 820px) {
-  .login-wrap {
+@media (max-width: 860px) {
+  .lp {
     grid-template-columns: 1fr;
-    gap: 28px;
-    max-width: 420px;
   }
-  .login-brand {
-    text-align: center;
+  .lp-side {
+    padding: 34px 28px 30px;
+    gap: 24px;
   }
-  .brand-mark {
-    margin: 0 auto 18px;
+  .lp-side::before {
+    inset: 10px;
   }
-  .brand-title {
-    font-size: 30px;
+  .lp-title {
+    font-size: 26px;
+    letter-spacing: 1px;
+    margin-bottom: 12px;
   }
-  .brand-title br {
+  .lp-title br,
+  .lp-meta,
+  .lp-side-foot {
     display: none;
   }
-  .brand-round {
-    margin-top: 16px;
+  .lp-desc {
+    font-size: 13.5px;
   }
-}
-
-@media (max-width: 480px) {
-  .login-card .ant-card-body {
-    padding: 26px 20px 20px;
+  .lp-main {
+    padding: 32px 20px 20px;
+  }
+  .lp-form-sub {
+    margin-bottom: 22px;
   }
 }
 
@@ -286,9 +290,7 @@ body {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: saturate(180%) blur(14px);
-  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  background: #fff;
   border-bottom: 1px solid var(--line);
 }
 
@@ -313,16 +315,18 @@ body {
 
 .topbar-mark {
   flex: none;
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
+  width: 30px;
+  height: 30px;
+  border-radius: 3px;
   display: flex;
   align-items: center;
   justify-content: center;
+  writing-mode: vertical-rl;
+  font-family: var(--serif);
   font-size: 12.5px;
   font-weight: 700;
   color: #fff;
-  background: linear-gradient(135deg, var(--brand) 0%, var(--brand-2) 100%);
+  background: var(--seal);
 }
 
 .topbar-text {
@@ -364,14 +368,10 @@ body {
 .hero {
   position: relative;
   overflow: hidden;
-  border-radius: 20px;
+  border-radius: 12px;
   padding: 30px 32px 24px;
   color: #fff;
-  background:
-    radial-gradient(620px 260px at 100% 0%, rgba(255, 255, 255, 0.16), transparent 60%),
-    radial-gradient(420px 260px at 0% 100%, rgba(120, 160, 255, 0.25), transparent 60%),
-    linear-gradient(135deg, #142c78 0%, #2f4cbc 55%, #4a3aa7 100%);
-  box-shadow: 0 18px 40px rgba(30, 50, 140, 0.25);
+  background: var(--navy);
 }
 
 .hero-main {
@@ -388,8 +388,10 @@ body {
 }
 
 .hero-name {
+  font-family: var(--serif);
   font-size: 30px;
-  font-weight: 700;
+  font-weight: 600;
+  letter-spacing: 2px;
   line-height: 1.3;
 }
 
@@ -401,11 +403,11 @@ body {
 }
 
 .hero-tag {
-  background: rgba(255, 255, 255, 0.14);
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  color: rgba(255, 255, 255, 0.92);
-  border-radius: 999px;
-  padding: 3px 12px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.9);
+  border-radius: 4px;
+  padding: 3px 10px;
   font-size: 12.5px;
 }
 
@@ -476,9 +478,9 @@ body {
 /* 统计卡 */
 .stat-tile,
 .panel {
-  border-radius: 16px;
+  border-radius: 12px;
   border: 1px solid var(--line);
-  box-shadow: 0 1px 2px rgba(15, 30, 80, 0.04);
+  box-shadow: none;
 }
 
 .stat-tile .ant-card-body {
@@ -512,7 +514,7 @@ body {
 .stat-track {
   height: 6px;
   border-radius: 999px;
-  background: #eef1f7;
+  background: #efece5;
   overflow: hidden;
   margin-top: 12px;
 }
@@ -580,22 +582,6 @@ body {
   margin-bottom: 8px;
 }
 
-.rank-hidden {
-  cursor: help;
-  display: inline-block;
-}
-
-.rank-hidden-badge {
-  display: inline-block;
-  font-size: 18px;
-  font-weight: 600;
-  padding: 6px 20px;
-  border-radius: 10px;
-  color: #ad6800;
-  background: #fff7e6;
-  border: 1px solid #ffe1a8;
-}
-
 .rank-sub {
   display: flex;
   align-items: center;
@@ -608,7 +594,7 @@ body {
 
 /* 明细表 */
 .table-sum {
-  background: #f8faff;
+  background: #faf9f6;
 }
 
 .num {
@@ -660,7 +646,7 @@ body {
   }
   .hero {
     padding: 22px 20px 20px;
-    border-radius: 16px;
+    border-radius: 10px;
   }
   .hero-name {
     font-size: 24px;

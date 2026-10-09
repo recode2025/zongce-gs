@@ -18,16 +18,7 @@ export default {
   // 生产环境缺密钥时 index.js 会拒绝启动；开发环境给默认值方便联调
   jwtSecret: env('JWT_SECRET', isProd ? '' : 'dev-only-secret'),
   sessionTtl: num('SESSION_TTL', 12 * 3600),
-  // HIDE_TOP_N=0 表示不隐藏任何排名（num() 会把 ≤0 回退成默认值，这里单独读）
-  hideTopN: (() => {
-    const v = Number(process.env.HIDE_TOP_N);
-    return Number.isFinite(v) && v >= 0 ? v : 30;
-  })(),
-  // 'total' → 按全校总排名判定前 N；'major' → 按专业内排名判定前 N
-  hideRule: env('HIDE_RULE', 'total'),
   roundLabel: env('ROUND_LABEL', '第二轮'),
   casBaseUrl: env('CAS_BASE_URL', 'https://cas.dlufl.edu.cn'),
-  // 本站对外访问地址（无末尾斜杠），CAS 回调地址 = PUBLIC_URL + /api/cas/callback
-  publicUrl: env('PUBLIC_URL', '').replace(/\/+$/, ''),
   isProd,
 };

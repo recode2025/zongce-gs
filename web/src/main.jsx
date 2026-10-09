@@ -11,8 +11,8 @@ createRoot(document.getElementById('root')).render(
       locale={zhCN}
       theme={{
         token: {
-          colorPrimary: '#2a78d6',
-          borderRadius: 10,
+          colorPrimary: '#1d4f91',
+          borderRadius: 8,
           fontFamily:
             "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif",
         },

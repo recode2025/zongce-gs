@@ -8,7 +8,7 @@
 
 const WINDOW_MS = 60_000;
 
-// 默认以 JSON 拒绝；浏览器整页跳转的接口（如 CAS 回调）可传 reject 改成重定向
+// 默认以 JSON 拒绝；浏览器整页跳转的接口可传 reject 改成重定向
 const jsonReject = (res, status, body) => res.status(status).json(body);
 
 function clientIp(req) {

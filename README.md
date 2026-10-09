@@ -1,6 +1,6 @@
 # 综合素质评价成绩查询系统
 
-大连外国语大学综测成绩查询：跳转学校 CAS 统一身份认证登录（本站不接触密码），学生只能查到自己的一条记录。
+大连外国语大学综测成绩查询：学号 + 统一身份认证密码 + 图形验证码登录（服务端代为向学校 CAS 核验，不保存密码），学生只能查到自己的一条记录。
 Node.js + Express + SQLite + React(antd 5)，单机部署，面向 1000 人查询 / 300 并发设计。
 
 ## 架构
@@ -16,7 +16,7 @@ nginx（可选层：压缩 / 慢客户端缓冲 / 兜底限流）
    ▼
 Node cluster × 4 worker（4 核）
    ├─ 查询：启动时全量加载 SQLite → 内存 Map，O(1) 命中，零 DB 竞争
-   └─ 登录：302 跳学校 CAS → 回调 /api/cas/callback 校验 ticket（并发闸门保护上游）
+   └─ 登录：验证码 → 服务端向学校 CAS 提交账号密码换 ticket → 取学号（并发闸门保护上游）
 ```
 
 **为什么 300 并发不卡**：查询路径 = JWT 校验 + 内存 Map 取值 + JSON 序列化，
@@ -27,16 +27,16 @@ Node cluster × 4 worker（4 核）
 | 1000 请求 / 300 并发 | 2083 req/s | 92ms | 243ms | 0 |
 | 10000 请求 / 300 并发 | 5342 req/s | 47ms | 216ms | 0 |
 
-**排名保密**：本轮（第二轮）综测总排名前 30 名（`HIDE_TOP_N`），其专业排名与总排名在
-**服务端**被替换为空（`rankHidden: true`），真实名次不出现在任何响应里，
-抓包/改前端都拿不到。大数据专业按原表不参与年级排名。
+**排名**：专业排名与年级总排名全部公布；大数据专业按原表不参与年级排名。
 
 ## 目录
 
 ```
 server/            Express 服务（cluster 入口 index.js）
-  lib/cas.js       学校 CAS 跳转登录 + ticket 校验（proxyValidate）
-  routes/          auth（CAS 跳转/回调/登出）、score（查询）
+  lib/cas.js       学校 CAS 账号密码登录 + ticket 校验（proxyValidate）
+  lib/des.js       学校 CAS 登录页使用的 DES 加密（strEnc）
+  lib/captcha.js   无状态图形验证码（AES-GCM 加密 token，一次一用）
+  routes/          auth（验证码/登录/登出）、score（查询）
   session.js       JWT 会话（httpOnly cookie）
   middleware/      IP 限速 + CAS 并发闸门
 scripts/
@@ -68,7 +68,7 @@ npm --prefix web run build         # 生成 web/dist，服务端直接托管
 
 # 2. 配置
 cp .env.example .env
-vim .env                           # 必改 JWT_SECRET=$(openssl rand -hex 32)、PUBLIC_URL
+vim .env                           # 必改 JWT_SECRET=$(openssl rand -hex 32)
 node scripts/import-excel.js       # 首次导入（EXCEL_PATH 指向 xlsx）
 
 # 3. systemd
@@ -89,15 +89,16 @@ EXCEL_PATH=/path/第二轮.xlsx node scripts/import-excel.js   # 重写 zongce.d
 systemctl kill -s HUP zongce                                  # 热重载，不停服
 ```
 
-## CAS 跳转登录
+## 登录流程
 
-1. 首页点「统一身份认证登录」→ `/api/cas/login` → 302 到 `CAS_BASE_URL/cas/login?service=PUBLIC_URL/api/cas/callback`
-2. 学生在学校认证页登录，CAS 带 `ticket` 回调 `/api/cas/callback`
-3. 服务端用 ticket 调 `proxyValidate` 取学号（`id_number`），签发会话 cookie 后跳回首页
-4. 退出 `/api/logout`：清本站会话并跳学校 CAS 登出
+1. 首页加载时 `GET /api/captcha` 取验证码（SVG + 加密 token；答案不出现在 token 明文里，5 分钟有效、一次一用）
+2. 学生填学号、统一身份认证密码、验证码 → `POST /api/login`
+3. 服务端先校验验证码（错了不打学校上游），再向 `CAS_BASE_URL/cas/login` 提交加密后的账号密码，
+   拿到 CASTGC 后换 ticket，`proxyValidate` 取学号（`id_number`）与姓名，签发会话 cookie
+4. 退出 `POST /api/logout`：清本站会话
 
-**上线前需请学校信息中心把 `PUBLIC_URL/api/cas/callback` 登记为允许的 service**，否则 CAS 会拒绝跳转。
-回调失败时会带 `?login_error=<CODE>` 回到首页并提示。
+密码只在内存中转发给学校 CAS，不落盘、不进日志。登录接口有 IP 限速（10 次/分）+ 全局 CAS 并发闸门。
+学校若改版登录页（表单字段/加密方式变化），登录会报 `CAS_PAGE_CHANGED`，需要同步更新 `server/lib/cas.js`。
 
 ## 阿里云 DCDN 配置
 
@@ -122,10 +123,7 @@ systemctl kill -s HUP zongce                                  # 热重载，不�
 |---|---|---|
 | `JWT_SECRET` | 无（生产必填） | 会话签名密钥 |
 | `WORKERS` | 4 | cluster 进程数 |
-| `HIDE_TOP_N` | 30 | 前 N 名不公布排名 |
-| `HIDE_RULE` | total | `total`=按总排名判前 N；`major`=按专业排名判前 N |
 | `ROUND_LABEL` | 第二轮 | 轮次名称 |
-| `PUBLIC_URL` | 无（生产必填） | 本站对外 https 地址，CAS 回调 = `PUBLIC_URL/api/cas/callback` |
 | `CAS_BASE_URL` | https://cas.dlufl.edu.cn | 学校 CAS 地址 |
 | `EXCEL_PATH` | – | 导入脚本用，Excel 路径 |
 
