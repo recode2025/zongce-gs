@@ -9,7 +9,7 @@ const router = Router();
 const queryLimiter = makeIpLimiter({ max: 60, message: '查询过于频繁，请稍后再试' });
 
 /**
- * 前 N 名不公布第一轮综测排名。
+ * 前 N 名不公布本轮综测排名。
  * 关键：遮蔽发生在服务端 —— 被隐藏的排名数值绝不发给浏览器，
  * 前端只拿到 rankHidden 标记，抓包/改页面都拿不到真实名次。
  */
@@ -47,6 +47,7 @@ router.get('/api/score', requireSession, queryLimiter, (req, res) => {
       major: record.major,
       clazz: record.clazz,
       roundLabel: config.roundLabel,
+      hideTopN: config.hideTopN,
       importedAt: store.meta.importedAt,
       categories: [
         { key: 'pinde', label: '品德行为表现', ...fmtCategory(record.data.pinde) },

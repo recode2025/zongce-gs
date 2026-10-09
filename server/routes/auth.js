@@ -1,52 +1,52 @@
 import { Router } from 'express';
-import { casLogin, CasError } from '../lib/cas.js';
-import { createCaptcha, verifyCaptcha } from '../lib/captcha.js';
-import { issueSession, clearSession, readSession } from '../session.js';
+import { buildLoginUrl, buildLogoutUrl, validateTicket, CasError } from '../lib/cas.js';
+import { issueSession, clearSession } from '../session.js';
 import { makeIpLimiter, makeConcurrencyGate } from '../middleware/rateLimit.js';
+import config from '../config.js';
 
 const router = Router();
 
-// 登录要打学校 CAS 上游 —— 双重保护：IP 限速 + 全局并发闸门
-const loginIpLimiter = makeIpLimiter({ max: 10, message: '登录尝试过于频繁，请 1 分钟后再试' });
-const casGate = makeConcurrencyGate({ maxConcurrent: 20, burst: 300 });
-const captchaLimiter = makeIpLimiter({ max: 30, message: '请求过于频繁，请稍后再试' });
+// 回调要打学校 CAS 上游校验票据 —— 双重保护：IP 限速 + 全局并发闸门
+// 回调是浏览器整页访问，被拒时跳回首页带错误码，而不是吐 JSON
+const redirectReject = (res, status, body) => res.redirect(302, `/?login_error=${encodeURIComponent(body.code)}`);
+const callbackIpLimiter = makeIpLimiter({ max: 20, message: '登录尝试过于频繁，请 1 分钟后再试', reject: redirectReject });
+const casGate = makeConcurrencyGate({ maxConcurrent: 20, burst: 300, reject: redirectReject });
 
-// 图形验证码：纯 CPU 生成 SVG + 签名，无状态，无性能影响
-router.get('/api/captcha', captchaLimiter, (req, res) => {
-  const { svg, token } = createCaptcha();
+/**
+ * 本站对外根地址。CAS 校验要求 service 前后完全一致，生产必须在 .env 配 PUBLIC_URL
+ * （DCDN 终结 HTTPS 后回源是 http，从请求推断会得到错误协议）；开发环境按请求推断。
+ */
+function publicBase(req) {
+  return config.publicUrl || `${req.protocol}://${req.get('host')}`;
+}
+const serviceUrl = (req) => `${publicBase(req)}/api/cas/callback`;
+
+// 首页「登录」按钮 → 跳学校统一认证
+router.get('/api/cas/login', (req, res) => {
   res.set('Cache-Control', 'no-store');
-  res.json({ ok: true, data: { svg, token } });
+  res.redirect(302, buildLoginUrl(serviceUrl(req)));
 });
 
-router.post('/api/login', loginIpLimiter, casGate, async (req, res) => {
-  const { username, password, captchaToken, captchaText } = req.body ?? {};
-
-  // 验证码先于 CAS 校验（错误时完全不触碰学校上游）
-  if (!verifyCaptcha(captchaToken, captchaText)) {
-    return res.status(400).json({ ok: false, code: 'CAPTCHA_WRONG', message: '验证码错误或已过期，请重新输入' });
-  }
-
+// 学校 CAS 登录成功后带 ticket 回到这里
+router.get('/api/cas/callback', callbackIpLimiter, casGate, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const fail = (code) => res.redirect(302, `/?login_error=${encodeURIComponent(code)}`);
   try {
-    const { studentId, name } = await casLogin(String(username ?? ''), String(password ?? ''));
+    const { studentId, name } = await validateTicket(serviceUrl(req), String(req.query.ticket ?? ''));
     issueSession(res, { studentId, name });
-    res.set('Cache-Control', 'no-store');
-    return res.json({ ok: true, data: { studentId, name } });
+    return res.redirect(302, '/');
   } catch (e) {
-    if (e instanceof CasError) {
-      const status =
-        e.code === 'WRONG_CREDENTIALS' ? 401 :
-        e.code === 'BAD_INPUT' ? 400 :
-        e.code === 'CAS_UNAVAILABLE' ? 502 : 502;
-      return res.status(status).json({ ok: false, code: e.code, message: e.message });
-    }
-    console.error('[auth] login error:', e);
-    return res.status(500).json({ ok: false, code: 'INTERNAL', message: '服务异常，请稍后再试' });
+    if (e instanceof CasError) return fail(e.code);
+    console.error('[auth] cas callback error:', e);
+    return fail('INTERNAL');
   }
 });
 
-router.post('/api/logout', (req, res) => {
+// 退出：清本站会话，并让学校 CAS 一并登出（否则再点登录会被 SSO 直接放行）
+router.get('/api/logout', (req, res) => {
   clearSession(res);
-  res.json({ ok: true });
+  res.set('Cache-Control', 'no-store');
+  res.redirect(302, buildLogoutUrl(`${publicBase(req)}/`));
 });
 
 export default router;

@@ -4,8 +4,10 @@
  * 用法: EXCEL_PATH=/path/to/综测总表.xlsx npm run import
  *
  * 说明:
- * - 主表「综测总表」的 品德总分(Q)/学业总分(X)/总分(AF) 是公式且无缓存值，
- *   这里按原始分项重新计算: Q=Σ(G:P), X=Σ(R:W), AF=Q+X+文体总分(AE 静态值)
+ * - 主表「综测总表」的 品德总分(Q)/学业总分(X)/校园文化活动总分(AD)/文体总分(AE)/总分(AF)
+ *   是公式且无缓存值，这里按原始分项重新计算: Q=Σ(G:P), X=Σ(R:W), AD=Σ(AA:AC), AE=Y+Z+AD
+ * - X/AD/AE 若被人工改成静态数字（如 AD 封顶 4 分、X 核定为 0），以静态值为准，并在对应分项上加备注
+ * - 主表没有的专业（本轮大数据）从其排名 sheet 补入：只有三项总分，无分项明细，不参与年级排名
  * - 排名(A 年级排名 / B 专业排名)为表中静态值，直接采信（与各专业排名 sheet 一致）
  * - 与 5 个专业排名 sheet 的静态总分做交叉校验，差异会打印报告
  * - 脏数据策略: 「缓考」/空 → 按 0 计；无法解析的文本 → 按 0 计并记录备注（页面上可见）
@@ -22,6 +24,8 @@ const DB_PATH = path.resolve(__dirname, '../data/zongce.db');
 const EXCEL_PATH = process.env.EXCEL_PATH || 'C:/Users/recode/Desktop/综测总表.xlsx';
 const MAIN_SHEET = '综测总表';
 const RANK_SHEETS = ['计科排名', '软工排名', '网工排名', '信管排名', '大数据排名'];
+// 主表里没有、只在排名 sheet 里给出总分的专业
+const SHEET_ONLY_MAJORS = [{ sheet: '大数据排名', major: '大数据' }];
 
 const r2 = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
 
@@ -43,6 +47,11 @@ function toScore(raw, context, label) {
   const note = `原始值「${s}」无法识别，按 0 分计`;
   warnings.push(`${context} ${label}: ${note}`);
   return { value: 0, note };
+}
+
+/** 汇总列（原为公式）若被人工改成数字则返回该值；公式单元格无缓存值 → null */
+function staticNum(raw) {
+  return typeof raw === 'number' && Number.isFinite(raw) ? r2(raw) : null;
 }
 
 function toRank(raw) {
@@ -109,10 +118,26 @@ for (const row of mainRows) {
   const wentiItems = mkItems([24, 25, 26, 27, 28], WENTI_ITEMS, '文体');
 
   const pindeTotal = sum(pindeItems); // Q = Σ(G:P)
-  const xueyeTotal = sum(xueyeItems); // X = Σ(R:W)
-  // AE 文体总分为静态值（AD 校园文化活动总分已含在 AB+AC 中，不重复累加）
-  const wentiStatic = toScore(row[30], ctx, '文体总分(静态)');
-  const wentiTotal = wentiStatic.value !== 0 ? wentiStatic.value : sum(wentiItems);
+
+  // X 学业总分 = Σ(R:W)；原表个别行把公式改成了人工核定的静态值（如核定为 0），以静态值为准
+  const xueyeCalc = sum(xueyeItems);
+  const xueyeStatic = staticNum(row[23]);
+  const xueyeTotal = xueyeStatic ?? xueyeCalc;
+  if (xueyeStatic !== null && xueyeStatic !== xueyeCalc) {
+    const item = xueyeItems.find((it) => it.value < 0) ?? xueyeItems[0];
+    item.note = `学业总分按原表核定为 ${xueyeStatic} 分（分项合计 ${xueyeCalc}）`;
+    warnings.push(`${ctx} 学业总分静态值 ${xueyeStatic} ≠ 分项合计 ${xueyeCalc}，采信静态值`);
+  }
+
+  // 文体: AE = Y + Z + AD，AD 校园文化活动总分 = Σ(AA:AC)，人工改成静态值即为封顶后的核定分
+  const cultureCalc = sum(wentiItems.slice(2));
+  const cultureStatic = staticNum(row[29]);
+  const culture = cultureStatic ?? cultureCalc;
+  if (cultureStatic !== null && cultureStatic !== cultureCalc) {
+    wentiItems[3].note = `校园文化活动类合计 ${cultureCalc} 分，按原表核定计 ${cultureStatic} 分`;
+    warnings.push(`${ctx} 校园文化活动总分静态值 ${cultureStatic} ≠ 分项合计 ${cultureCalc}，采信静态值`);
+  }
+  const wentiTotal = staticNum(row[30]) ?? r2((wentiItems[0].value ?? 0) + (wentiItems[1].value ?? 0) + culture);
   const total = r2(pindeTotal + xueyeTotal + wentiTotal);
 
   students.push({
@@ -129,6 +154,48 @@ for (const row of mainRows) {
       totalRank: toRank(row[0]),  // A（大数据专业为空 → null）
     },
   });
+}
+
+// ---------- 1b. 只出现在排名 sheet、不在主表里的专业（本轮大数据）----------
+// 排名 sheet 只有三项总分，没有分项明细；不参与年级排名（totalRank=null）
+for (const { sheet, major } of SHEET_ONLY_MAJORS) {
+  const ws = wb.Sheets[sheet];
+  if (!ws) continue;
+  const [header = [], ...grid] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
+  const col = (want) => header.findIndex((h) => String(h ?? '').trim() === want);
+  const [cRank, cClass, cId, cName, cP, cX, cW] =
+    ['排名', '班级', '学号', '姓名', '品德总分', '学业总分', '文体总分'].map(col);
+  if ([cRank, cId, cName, cP, cX, cW].some((c) => c < 0)) {
+    warnings.push(`sheet「${sheet}」表头识别失败，${major}专业未导入`);
+    continue;
+  }
+  let added = 0;
+  for (const row of grid) {
+    const studentId = String(row[cId] ?? '').trim();
+    const name = String(row[cName] ?? '').trim();
+    if (!/^\d{6,}$/.test(studentId)) continue;
+    if (seenIds.has(studentId)) continue; // 主表已有，以主表为准
+    seenIds.add(studentId);
+    const ctx = `${studentId} ${name}`;
+    const cat = (c, label) => ({ items: [], total: toScore(row[c], ctx, label).value ?? 0 });
+    const pinde = cat(cP, '品德总分');
+    const xueye = cat(cX, '学业总分');
+    const wenti = cat(cW, '文体总分');
+    students.push({
+      studentId,
+      name,
+      major,
+      clazz: String(row[cClass] ?? '').trim(),
+      data: {
+        pinde, xueye, wenti,
+        total: r2(pinde.total + xueye.total + wenti.total),
+        majorRank: toRank(row[cRank]),
+        totalRank: null,
+      },
+    });
+    added += 1;
+  }
+  console.log(`[import] 「${sheet}」补充 ${added} 名${major}学生（主表无该专业，仅三项总分）`);
 }
 
 // ---------- 2. 读专业排名 sheet 做交叉校验 ----------
@@ -158,7 +225,8 @@ for (const sheetName of RANK_SHEETS) {
       p: r2(Number(row[cP]) || 0),
       x: r2(Number(row[cX]) || 0),
       w: r2(Number(row[cW]) || 0),
-      t: r2(Number(row[cT]) || 0),
+      // 总分列为公式且无缓存值时按三项相加
+      t: typeof row[cT] === 'number' ? r2(row[cT]) : r2((Number(row[cP]) || 0) + (Number(row[cX]) || 0) + (Number(row[cW]) || 0)),
     });
   }
 }
@@ -185,9 +253,10 @@ for (const s of students) {
 const majorCount = {};
 for (const s of students) majorCount[s.major] = (majorCount[s.major] ?? 0) + 1;
 const totalCount = students.length;
+const rankedCount = students.filter((s) => s.data.totalRank != null).length; // 年级排名分母（不含不参与年级排名的专业）
 for (const s of students) {
   s.data.majorCount = majorCount[s.major] ?? null;
-  s.data.totalCount = totalCount;
+  s.data.totalCount = rankedCount;
 }
 
 // ---------- 4. 写库 ----------

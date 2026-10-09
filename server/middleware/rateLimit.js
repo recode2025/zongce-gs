@@ -8,13 +8,16 @@
 
 const WINDOW_MS = 60_000;
 
+// 默认以 JSON 拒绝；浏览器整页跳转的接口（如 CAS 回调）可传 reject 改成重定向
+const jsonReject = (res, status, body) => res.status(status).json(body);
+
 function clientIp(req) {
   const xf = req.headers['x-forwarded-for'];
   if (xf) return String(xf).split(',')[0].trim();
   return req.socket.remoteAddress ?? 'unknown';
 }
 
-export function makeIpLimiter({ windowMs = WINDOW_MS, max = 30, message = '请求过于频繁，请稍后再试' } = {}) {
+export function makeIpLimiter({ windowMs = WINDOW_MS, max = 30, message = '请求过于频繁，请稍后再试', reject = jsonReject } = {}) {
   const buckets = new Map(); // ip -> { count, resetAt }
 
   // 定期清理，防内存缓慢增长
@@ -36,7 +39,7 @@ export function makeIpLimiter({ windowMs = WINDOW_MS, max = 30, message = '请�
     res.setHeader('X-RateLimit-Remaining', Math.max(0, max - b.count));
     if (b.count > max) {
       res.setHeader('Retry-After', Math.ceil((b.resetAt - now) / 1000));
-      return res.status(429).json({ ok: false, code: 'RATE_LIMITED', message });
+      return reject(res, 429, { ok: false, code: 'RATE_LIMITED', message });
     }
     next();
   };
@@ -47,7 +50,7 @@ export function makeIpLimiter({ windowMs = WINDOW_MS, max = 30, message = '请�
  * 超出的排队等待（上限 burst，防止请求无限堆积）。
  * 300 并发涌入时按闸门节流，学校 CAS 无感知。
  */
-export function makeConcurrencyGate({ maxConcurrent = 20, burst = 200, waitMs = 15_000 } = {}) {
+export function makeConcurrencyGate({ maxConcurrent = 20, burst = 200, waitMs = 15_000, reject = jsonReject } = {}) {
   let active = 0;
   const queue = [];
 
@@ -62,7 +65,7 @@ export function makeConcurrencyGate({ maxConcurrent = 20, burst = 200, waitMs = 
 
   return function concurrencyGate(req, res, next) {
     if (queue.length >= burst) {
-      return res.status(503).json({ ok: false, code: 'BUSY', message: '当前查询人数较多，请稍后再试' });
+      return reject(res, 503, { ok: false, code: 'BUSY', message: '当前查询人数较多，请稍后再试' });
     }
     const done = () => {
       res.on('finish', () => {
@@ -74,7 +77,7 @@ export function makeConcurrencyGate({ maxConcurrent = 20, burst = 200, waitMs = 
     const timer = setTimeout(() => {
       const i = queue.findIndex((q) => q.timer === timer);
       if (i >= 0) queue.splice(i, 1);
-      res.status(503).json({ ok: false, code: 'BUSY', message: '当前查询人数较多，请稍后再试' });
+      reject(res, 503, { ok: false, code: 'BUSY', message: '当前查询人数较多，请稍后再试' });
     }, waitMs);
     queue.push({ resolve: done, timer });
     settle();

@@ -1,6 +1,6 @@
 # 综合素质评价成绩查询系统
 
-大连外国语大学综测成绩查询：学校 CAS 统一认证登录，学生只能查到自己的一条记录。
+大连外国语大学综测成绩查询：跳转学校 CAS 统一身份认证登录（本站不接触密码），学生只能查到自己的一条记录。
 Node.js + Express + SQLite + React(antd 5)，单机部署，面向 1000 人查询 / 300 并发设计。
 
 ## 架构
@@ -16,7 +16,7 @@ nginx（可选层：压缩 / 慢客户端缓冲 / 兜底限流）
    ▼
 Node cluster × 4 worker（4 核）
    ├─ 查询：启动时全量加载 SQLite → 内存 Map，O(1) 命中，零 DB 竞争
-   └─ 登录：学校 CAS（并发闸门保护上游，最多 20 个并发打 CAS）
+   └─ 登录：302 跳学校 CAS → 回调 /api/cas/callback 校验 ticket（并发闸门保护上游）
 ```
 
 **为什么 300 并发不卡**：查询路径 = JWT 校验 + 内存 Map 取值 + JSON 序列化，
@@ -27,7 +27,7 @@ Node cluster × 4 worker（4 核）
 | 1000 请求 / 300 并发 | 2083 req/s | 92ms | 243ms | 0 |
 | 10000 请求 / 300 并发 | 5342 req/s | 47ms | 216ms | 0 |
 
-**排名保密**：第一轮综测总排名前 30 名（`HIDE_TOP_N`），其专业排名与总排名在
+**排名保密**：本轮（第二轮）综测总排名前 30 名（`HIDE_TOP_N`），其专业排名与总排名在
 **服务端**被替换为空（`rankHidden: true`），真实名次不出现在任何响应里，
 抓包/改前端都拿不到。大数据专业按原表不参与年级排名。
 
@@ -35,8 +35,8 @@ Node cluster × 4 worker（4 核）
 
 ```
 server/            Express 服务（cluster 入口 index.js）
-  lib/cas.js       学校 CAS 登录（复刻 dlufl 项目，含 DES 加密 des.js）
-  routes/          auth（登录/登出）、score（查询）
+  lib/cas.js       学校 CAS 跳转登录 + ticket 校验（proxyValidate）
+  routes/          auth（CAS 跳转/回调/登出）、score（查询）
   session.js       JWT 会话（httpOnly cookie）
   middleware/      IP 限速 + CAS 并发闸门
 scripts/
@@ -50,8 +50,7 @@ data/zongce.db     SQLite 数据（导入生成）
 ## 本地开发
 
 ```bash
-npm install                        # 服务端依赖
-npm --prefix web install           # 前端依赖
+pnpm install                       # 服务端 + 前端依赖（better-sqlite3 无预编译包时会用 node-gyp 源码编译）
 node scripts/import-excel.js       # 导入 Excel（默认读桌面路径，可用 EXCEL_PATH=... 指定）
 npm run dev                        # 服务 :3000
 npm --prefix web run dev           # 前端 :5173（/api 代理到 3000）
@@ -69,7 +68,7 @@ npm --prefix web run build         # 生成 web/dist，服务端直接托管
 
 # 2. 配置
 cp .env.example .env
-vim .env                           # 必改 JWT_SECRET=$(openssl rand -hex 32)
+vim .env                           # 必改 JWT_SECRET=$(openssl rand -hex 32)、PUBLIC_URL
 node scripts/import-excel.js       # 首次导入（EXCEL_PATH 指向 xlsx）
 
 # 3. systemd
@@ -89,6 +88,16 @@ cd /opt/zongce
 EXCEL_PATH=/path/第二轮.xlsx node scripts/import-excel.js   # 重写 zongce.db
 systemctl kill -s HUP zongce                                  # 热重载，不停服
 ```
+
+## CAS 跳转登录
+
+1. 首页点「统一身份认证登录」→ `/api/cas/login` → 302 到 `CAS_BASE_URL/cas/login?service=PUBLIC_URL/api/cas/callback`
+2. 学生在学校认证页登录，CAS 带 `ticket` 回调 `/api/cas/callback`
+3. 服务端用 ticket 调 `proxyValidate` 取学号（`id_number`），签发会话 cookie 后跳回首页
+4. 退出 `/api/logout`：清本站会话并跳学校 CAS 登出
+
+**上线前需请学校信息中心把 `PUBLIC_URL/api/cas/callback` 登记为允许的 service**，否则 CAS 会拒绝跳转。
+回调失败时会带 `?login_error=<CODE>` 回到首页并提示。
 
 ## 阿里云 DCDN 配置
 
@@ -115,12 +124,18 @@ systemctl kill -s HUP zongce                                  # 热重载，不�
 | `WORKERS` | 4 | cluster 进程数 |
 | `HIDE_TOP_N` | 30 | 前 N 名不公布排名 |
 | `HIDE_RULE` | total | `total`=按总排名判前 N；`major`=按专业排名判前 N |
-| `ROUND_LABEL` | 第一轮 | 轮次名称 |
+| `ROUND_LABEL` | 第二轮 | 轮次名称 |
+| `PUBLIC_URL` | 无（生产必填） | 本站对外 https 地址，CAS 回调 = `PUBLIC_URL/api/cas/callback` |
+| `CAS_BASE_URL` | https://cas.dlufl.edu.cn | 学校 CAS 地址 |
 | `EXCEL_PATH` | – | 导入脚本用，Excel 路径 |
 
 ## 数据说明
 
-- 品德/学业总分由分项重算（原表公式无缓存值），与各专业「排名 sheet」静态总分
+- 品德/学业/文体总分由分项重算（原表公式无缓存值），与各专业「排名 sheet」静态总分
   **交叉校验 0 差异**；排名直接采信原表静态值。
+- 原表中被人工改成静态值的汇总格（校园文化活动总分封顶 4 分、学业总分核定为 0）以静态值为准，
+  页面在对应分项上备注说明，导入日志逐条列出。
+- 第二轮主表不含大数据专业：从「大数据排名」sheet 补入，只有品德/学业/文体三项总分（无分项明细），
+  显示专业排名，不参与年级排名；年级排名分母只算参与排名的人数。
 - 「缓考」：该项显示 *缓考，未进行计算*，按 0 分计入合计（与官方排名口径一致）。
 - 无法识别的脏数据（如 `1..7`）：按 0 计，导入日志会逐条列出。

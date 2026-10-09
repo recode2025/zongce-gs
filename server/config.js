@@ -25,7 +25,9 @@ export default {
   })(),
   // 'total' → 按全校总排名判定前 N；'major' → 按专业内排名判定前 N
   hideRule: env('HIDE_RULE', 'total'),
-  roundLabel: env('ROUND_LABEL', '第一轮'),
+  roundLabel: env('ROUND_LABEL', '第二轮'),
   casBaseUrl: env('CAS_BASE_URL', 'https://cas.dlufl.edu.cn'),
+  // 本站对外访问地址（无末尾斜杠），CAS 回调地址 = PUBLIC_URL + /api/cas/callback
+  publicUrl: env('PUBLIC_URL', '').replace(/\/+$/, ''),
   isProd,
 };

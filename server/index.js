@@ -19,6 +19,14 @@ if (!config.jwtSecret || config.jwtSecret === 'change-me-to-a-long-random-string
   console.warn('[warn] 未设置 JWT_SECRET，使用开发默认值 —— 生产环境必须配置');
 }
 
+if (!config.publicUrl) {
+  if (config.isProd) {
+    console.error('[fatal] 生产环境必须设置 PUBLIC_URL（本站 https 地址，CAS 回调依赖它）');
+    process.exit(1);
+  }
+  console.warn('[warn] 未设置 PUBLIC_URL，CAS 回调地址按请求 Host 推断 —— 生产环境必须配置');
+}
+
 if (cluster.isPrimary) {
   console.log(`[master] 启动 ${workerCount} 个 worker (pid=${process.pid})`);
   for (let i = 0; i < workerCount; i += 1) cluster.fork();
