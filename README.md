@@ -27,7 +27,8 @@ Node cluster × 4 worker（4 核）
 | 1000 请求 / 300 并发 | 2083 req/s | 92ms | 243ms | 0 |
 | 10000 请求 / 300 并发 | 5342 req/s | 47ms | 216ms | 0 |
 
-**排名**：专业排名与年级总排名全部公布；大数据专业按原表不参与年级排名。
+**排名**：专业排名与年级排名全部公布（不遮蔽任何名次），并列名次标注「并列」；大数据专业按原表单独排名、
+不参与年级总排名，其年级排名分母为本专业人数，页面附说明。
 
 ## 目录
 
@@ -40,7 +41,7 @@ server/            Express 服务（cluster 入口 index.js）
   session.js       JWT 会话（httpOnly cookie）
   middleware/      IP 限速 + CAS 并发闸门
 scripts/
-  import-excel.js  综测总表.xlsx → data/zongce.db（自动算总分，与排名 sheet 交叉校验）
+  import-excel.js  学年度综测总表.xlsx → data/zongce.db（复核分数与排名，与各专业排名 sheet 交叉校验）
   loadtest.mjs     压测脚本
 web/               React + antd 前端（手机/电脑自适应）
 deploy/            nginx.conf、systemd 服务文件
@@ -51,7 +52,7 @@ data/zongce.db     SQLite 数据（导入生成）
 
 ```bash
 pnpm install                       # 服务端 + 前端依赖（better-sqlite3 无预编译包时会用 node-gyp 源码编译）
-node scripts/import-excel.js       # 导入 Excel（默认读桌面路径，可用 EXCEL_PATH=... 指定）
+node scripts/import-excel.js       # 导入 Excel（默认读项目根目录「大一学年度综测总表.xlsx」，可用 EXCEL_PATH=... 指定）
 npm run dev                        # 服务 :3000
 npm --prefix web run dev           # 前端 :5173（/api 代理到 3000）
 ```
@@ -81,11 +82,11 @@ cp deploy/nginx.conf /etc/nginx/conf.d/zongce.conf
 #   修改 server_name 后 nginx -t && systemctl reload nginx
 ```
 
-### 数据更新（第二轮成绩）
+### 数据更新（换新的综测总表）
 
 ```bash
 cd /opt/zongce
-EXCEL_PATH=/path/第二轮.xlsx node scripts/import-excel.js   # 重写 zongce.db
+EXCEL_PATH=/path/大一学年度综测总表.xlsx node scripts/import-excel.js   # 重写 zongce.db
 systemctl kill -s HUP zongce                                  # 热重载，不停服
 ```
 
@@ -123,17 +124,17 @@ systemctl kill -s HUP zongce                                  # 热重载，不�
 |---|---|---|
 | `JWT_SECRET` | 无（生产必填） | 会话签名密钥 |
 | `WORKERS` | 4 | cluster 进程数 |
-| `ROUND_LABEL` | 第二轮 | 轮次名称 |
+| `ROUND_LABEL` | 大一学年度 | 公示名称（页面标签、总分标题） |
 | `CAS_BASE_URL` | https://cas.dlufl.edu.cn | 学校 CAS 地址 |
-| `EXCEL_PATH` | – | 导入脚本用，Excel 路径 |
+| `EXCEL_PATH` | 项目根目录/大一学年度综测总表.xlsx | 导入脚本用，Excel 路径 |
 
 ## 数据说明
 
-- 品德/学业/文体总分由分项重算（原表公式无缓存值），与各专业「排名 sheet」静态总分
-  **交叉校验 0 差异**；排名直接采信原表静态值。
-- 原表中被人工改成静态值的汇总格（校园文化活动总分封顶 4 分、学业总分核定为 0）以静态值为准，
-  页面在对应分项上备注说明，导入日志逐条列出。
-- 第二轮主表不含大数据专业：从「大数据排名」sheet 补入，只有品德/学业/文体三项总分（无分项明细），
-  显示专业排名，不参与年级排名；年级排名分母只算参与排名的人数。
-- 「缓考」：该项显示 *缓考，未进行计算*，按 0 分计入合计（与官方排名口径一致）。
-- 无法识别的脏数据（如 `1..7`）：按 0 计，导入日志会逐条列出。
+- 主表「学年度总表」：年级排名、专业排名、专业、班级、学号、姓名、各学期（大一上/大一下）的
+  品德/学业/文体/综测总分、学年总分、奖学金、备注。学期按两行表头自动识别，换成大二等学期无需改代码。
+- 分数与排名全部采信原表；导入时复核 综测=三项之和、学年=各学期之和、排名=按学年总分并列排名，
+  并与各「xx排名」sheet 交叉校验（本表：分数 0 差异、排名 0 差异、5 个排名 sheet 0 差异）。
+- 主表分隔行「大数据专业（单独排名，不参与年级总排名）」之后的学生单独成一个年级排名组：
+  年级排名分母为该组人数（30），分隔行文字作为排名说明显示。
+- 某学期无成绩（备注「无大一上综测成绩」等）：该学期显示「无成绩」，学年总分照原表。
+- 奖学金、备注（如转专业）原样显示；多项奖学金按「、」拆分展示。

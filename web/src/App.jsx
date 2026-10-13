@@ -1,18 +1,27 @@
-import { useEffect, useState } from 'react';
-import {
-  Alert, Button, Card, Col, Empty, Form, Grid, Input, Row, Spin, Table, Tabs, Tag,
-} from 'antd';
+import { Fragment, useEffect, useState } from 'react';
+import { Alert, Button, Card, Empty, Form, Input, Spin, Tag } from 'antd';
 import { api } from './api.js';
 
 // 图标用内联 SVG，避免打包整个 @ant-design/icons（省 ~600KB）
-const svgProps = { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' };
-const LogoutIcon = () => (<svg {...svgProps}><path d="M9 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" /></svg>);
+const svgProps = { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true };
+const LogoutIcon = () => (<svg {...svgProps} width={16} height={16}><path d="M9 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" /></svg>);
+const UserIcon = () => (<svg {...svgProps}><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>);
+const LockIcon = (p) => (<svg {...svgProps} {...p}><rect x="4" y="10" width="16" height="11" rx="2.5" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg>);
+const ShieldIcon = () => (<svg {...svgProps}><path d="M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z" /><path d="M9 12l2 2 4-4" /></svg>);
+const ChartIcon = () => (<svg {...svgProps}><path d="M4 20V10" /><path d="M10 20V4" /><path d="M16 20v-7" /><path d="M22 20H2" /></svg>);
+const PodiumIcon = () => (<svg {...svgProps}><path d="M9 21V9h6v12" /><path d="M3 21v-7h6" /><path d="M15 21v-5h6v5" /><path d="M2 21h20" /><path d="M12 3l.9 1.8 2 .3-1.45 1.4.35 2-1.8-.95-1.8.95.35-2L9.1 5.1l2-.3z" /></svg>);
+const AwardIcon = () => (<svg {...svgProps}><circle cx="12" cy="9" r="6" /><path d="M8.5 14.2L7 22l5-3 5 3-1.5-7.8" /></svg>);
 
-// 三类得分用固定色相（文字一律用墨色，色块只承载类别身份）
-const CATEGORY_COLOR = { pinde: '#2a78d6', xueye: '#eb6834', wenti: '#1baf7a' };
+// 三类得分用固定色相（dataviz 校验通过的前三槽位；文字一律用墨色，色块只承载类别身份）
+const CATEGORIES = [
+  { key: 'pinde', label: '品德行为表现', color: '#2a78d6' },
+  { key: 'xueye', label: '学业表现', color: '#eb6834' },
+  { key: 'wenti', label: '文体表现', color: '#1baf7a' },
+];
 
-const DEFAULT_ROUND = '第二轮';
-const fmt = (v) => (typeof v === 'number' ? Number(v.toFixed(2)) : v);
+const DEFAULT_ROUND = '大一学年度';
+// 分数统一两位小数（与原表显示一致）
+const score = (v) => (typeof v === 'number' ? v.toFixed(2) : '—');
 
 /* ================= 登录页 ================= */
 function LoginView({ roundLabel, onLogin }) {
@@ -54,67 +63,83 @@ function LoginView({ roundLabel, onLogin }) {
 
   return (
     <div className="lp">
-      <aside className="lp-side">
-        <div className="lp-head">
-          <span className="lp-seal">综测</span>
-          <span className="lp-school">大连外国语大学</span>
-        </div>
+      <div className="lp-bg" aria-hidden="true" />
+      <div className="lp-card">
+        <section className="lp-brand">
+          <div className="lp-brand-head">
+            <span className="brand-mark brand-mark-glass">综</span>
+            <div>
+              <div className="lp-school">大连外国语大学</div>
+              <div className="lp-school-sub">软件学院 · 学生综合素质评价</div>
+            </div>
+          </div>
 
-        <div className="lp-intro">
-          <h1 className="lp-title">综合素质评价<br />成绩查询</h1>
-          <p className="lp-desc">
-            {roundLabel}综测结果公示期间，同学可登录查询本人的各项得分、专业排名与年级排名。
-          </p>
-          <dl className="lp-meta">
-            <div><dt>轮次</dt><dd>{roundLabel}</dd></div>
-            <div><dt>账号</dt><dd>数字大外统一身份认证</dd></div>
-            <div><dt>范围</dt><dd>仅可查询本人成绩</dd></div>
-          </dl>
-        </div>
+          <div className="lp-intro">
+            <span className="lp-pill"><span className="lp-pill-dot" />{roundLabel} · 结果公示中</span>
+            <h1 className="lp-title">综测成绩查询</h1>
+            <p className="lp-desc">
+              公示期间，同学可登录查询本人的学年总分、各学期成绩、专业排名、年级排名及奖学金评定结果。
+            </p>
+          </div>
 
-        <div className="lp-side-foot">如对成绩有疑问，请在公示期内联系学院综测负责人</div>
-      </aside>
+          <ul className="lp-features">
+            <li>
+              <span className="lp-feat-icon"><ChartIcon /></span>
+              <div><b>学年总分</b><span>各学期综测成绩汇总，分项一目了然</span></div>
+            </li>
+            <li>
+              <span className="lp-feat-icon"><PodiumIcon /></span>
+              <div><b>专业排名 · 年级排名</b><span>排名全部公布，并列名次如实标注</span></div>
+            </li>
+            <li>
+              <span className="lp-feat-icon"><AwardIcon /></span>
+              <div><b>奖学金评定</b><span>评定结果与备注一并公示</span></div>
+            </li>
+          </ul>
+        </section>
 
-      <main className="lp-main">
-        <div className="lp-form">
-          <h2 className="lp-form-title">登录</h2>
-          <p className="lp-form-sub">请使用「数字大外」账号和密码</p>
+        <main className="lp-main">
+          <div className="lp-form">
+            <h2 className="lp-form-title">账号登录</h2>
+            <p className="lp-form-sub">使用「数字大外」统一身份认证账号</p>
 
-          {error && <Alert className="lp-alert" type="error" showIcon message={error} />}
+            {error && <Alert className="lp-alert" type="error" showIcon message={error} />}
 
-          <Form form={form} layout="vertical" size="large" onFinish={submit} requiredMark={false}>
-            <Form.Item label="学号" name="username" rules={[{ required: true, message: '请输入学号' }]}>
-              <Input placeholder="9 位学号" autoComplete="username" inputMode="numeric" autoFocus />
-            </Form.Item>
-            <Form.Item label="密码" name="password" rules={[{ required: true, message: '请输入密码' }]}>
-              <Input.Password placeholder="统一身份认证密码" autoComplete="current-password" />
-            </Form.Item>
-            <Form.Item label="验证码" required>
-              <div className="captcha-row">
-                <Form.Item name="captchaText" noStyle rules={[{ required: true, message: '请输入验证码' }]}>
-                  <Input placeholder="右侧字符" maxLength={4} autoComplete="off" />
-                </Form.Item>
-                <button
-                  type="button"
-                  className="captcha-img"
-                  title="看不清？点击换一张"
-                  aria-label="验证码图片，点击换一张"
-                  onClick={refreshCaptcha}
-                  dangerouslySetInnerHTML={{ __html: captcha.svg }}
-                />
-              </div>
-            </Form.Item>
-            <Button type="primary" htmlType="submit" className="lp-submit" block loading={loading}>
-              登录并查询
-            </Button>
-          </Form>
+            <Form form={form} layout="vertical" size="large" onFinish={submit} requiredMark={false}>
+              <Form.Item label="学号" name="username" rules={[{ required: true, message: '请输入学号' }]}>
+                <Input prefix={<UserIcon />} placeholder="9 位学号" autoComplete="username" inputMode="numeric" autoFocus />
+              </Form.Item>
+              <Form.Item label="密码" name="password" rules={[{ required: true, message: '请输入密码' }]}>
+                <Input.Password prefix={<LockIcon />} placeholder="统一身份认证密码" autoComplete="current-password" />
+              </Form.Item>
+              <Form.Item label="验证码" required>
+                <div className="captcha-row">
+                  <Form.Item name="captchaText" noStyle rules={[{ required: true, message: '请输入验证码' }]}>
+                    <Input prefix={<ShieldIcon />} placeholder="右侧字符" maxLength={4} autoComplete="off" />
+                  </Form.Item>
+                  <button
+                    type="button"
+                    className="captcha-img"
+                    title="看不清？点击换一张"
+                    aria-label="验证码图片，点击换一张"
+                    onClick={refreshCaptcha}
+                    dangerouslySetInnerHTML={{ __html: captcha.svg }}
+                  />
+                </div>
+              </Form.Item>
+              <Button type="primary" htmlType="submit" className="lp-submit" block loading={loading}>
+                登录并查询
+              </Button>
+            </Form>
 
-          <p className="lp-note">
-            密码仅用于向学校统一身份认证核验身份，本站不保存。
-          </p>
-        </div>
-        <div className="lp-main-foot">学生综合素质评价 · {roundLabel}</div>
-      </main>
+            <p className="lp-note">
+              <LockIcon width={14} height={14} />
+              密码仅用于向学校统一身份认证核验身份，本站不保存
+            </p>
+          </div>
+        </main>
+      </div>
+      <footer className="lp-foot">如对成绩有疑问，请在公示期内联系学院综测负责人</footer>
     </div>
   );
 }
@@ -125,8 +150,8 @@ function TopBar({ roundLabel, name, onLogout }) {
     <header className="topbar">
       <div className="topbar-inner">
         <div className="topbar-title">
-          <span className="topbar-mark">综测</span>
-          <span className="topbar-text">综合素质评价成绩查询</span>
+          <span className="brand-mark brand-mark-sm">综</span>
+          <span className="topbar-text">综测成绩查询</span>
           <Tag color="blue" bordered={false}>{roundLabel}</Tag>
         </div>
         <div className="topbar-right">
@@ -138,77 +163,101 @@ function TopBar({ roundLabel, name, onLogout }) {
   );
 }
 
-/* ================= 明细表 ================= */
-function CategoryTable({ category }) {
-  // 手机端（<768px）收紧「得分/备注」定宽并改紧凑行距，
-  // 否则两列桌面定宽会把「测评项目」列挤成一字一行的竖排
-  const compact = Grid.useBreakpoint().md === false;
-  const rows = (category.items ?? []).map((it, i) => ({ key: i, ...it }));
+/* ================= 排名卡 ================= */
+function RankTile({ title, rank, count, tied, scope }) {
   return (
-    <Table
-      size={compact ? 'small' : 'middle'}
-      pagination={false}
-      dataSource={rows}
-      summary={() => (
-        <Table.Summary.Row className="table-sum">
-          <Table.Summary.Cell index={0}><strong>{category.label}总分</strong></Table.Summary.Cell>
-          <Table.Summary.Cell index={1} align="right">
-            <strong style={{ fontSize: 16 }}>{fmt(category.total)}</strong>
-          </Table.Summary.Cell>
-          <Table.Summary.Cell index={2} />
-        </Table.Summary.Row>
-      )}
-    >
-      <Table.Column title="测评项目" dataIndex="label" key="label" />
-      <Table.Column
-        title="得分"
-        dataIndex="value"
-        key="value"
-        align="right"
-        width={compact ? 88 : 140}
-        render={(v) => {
-          if (v === null || v === undefined) {
-            return <Tag color="orange">缓考，未进行计算</Tag>;
-          }
-          if (v === 0) return <span className="num-zero">–</span>;
-          return <span className={v < 0 ? 'num-neg' : 'num'}>{fmt(v)}</span>;
-        }}
-      />
-      <Table.Column
-        title="备注"
-        dataIndex="note"
-        key="note"
-        width={compact ? 110 : 200}
-        render={(n) => (n && n.indexOf('缓考') < 0 ? <Tag bordered={false}>{n}</Tag> : null)}
-      />
-    </Table>
+    <div className="tile">
+      <div className="tile-label">
+        <span className="tile-icon"><PodiumIcon /></span>
+        {title}
+      </div>
+      <div className="tile-value">
+        {rank ?? '—'}
+        <span className="tile-denom">/ {count ?? '—'}</span>
+      </div>
+      <div className="tile-sub">
+        {tied && <span className="tile-badge">并列</span>}
+        {scope ?? '名次 / 参与排名人数'}
+      </div>
+    </div>
   );
 }
 
-/* ================= 排名块 ================= */
-function RankBlock({ title, rank, denom, absent }) {
+function ScholarshipTile({ value }) {
+  // 原表多项奖学金以「、」分隔，如「校三等、文体奖学金」
+  const awards = value ? value.split(/[、，,]/).map((s) => s.trim()).filter(Boolean) : [];
   return (
-    <div className="rank-block">
-      <div className="rank-title">{title}</div>
-      {absent ? (
-        <div>
-          <div className="rank-num stat-value-muted">—</div>
-          <div className="rank-sub">该专业未参与年级排名</div>
-        </div>
+    <div className="tile tile-award">
+      <div className="tile-label">
+        <span className="tile-icon tile-icon-gold"><AwardIcon /></span>
+        奖学金评定
+      </div>
+      {awards.length ? (
+        <>
+          <div className="award-list">
+            {awards.map((a) => <span key={a} className="award">{a}</span>)}
+          </div>
+          <div className="tile-sub">本学年评定结果</div>
+        </>
       ) : (
-        <div className="rank-num">
-          {rank ?? '–'}
-          <span className="rank-denom"> / {denom ?? '–'}</span>
-        </div>
+        <>
+          <div className="tile-value tile-value-muted">—</div>
+          <div className="tile-sub">本学年无奖学金评定记录</div>
+        </>
       )}
+    </div>
+  );
+}
+
+/* ================= 学期成绩表 ================= */
+function SemesterTable({ semesters, yearTotal }) {
+  return (
+    <div className="sem-scroll">
+      <table className="sem-table">
+        <thead>
+          <tr>
+            <th scope="col">测评项目</th>
+            {semesters.map((s) => (
+              <th scope="col" key={s.label}>
+                {s.label}
+                {s.missing && <span className="sem-missing">无成绩</span>}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {CATEGORIES.map((c) => (
+            <tr key={c.key}>
+              <th scope="row">
+                <span className="cat-chip" style={{ background: c.color }} />
+                {c.label}
+              </th>
+              {semesters.map((s) => (
+                <td key={s.label} className={s.missing ? 'num-empty' : undefined}>{score(s[c.key])}</td>
+              ))}
+            </tr>
+          ))}
+          <tr className="sem-subtotal">
+            <th scope="row">学期综测总分</th>
+            {semesters.map((s) => (
+              <td key={s.label} className={s.missing ? 'num-empty' : undefined}>{score(s.total)}</td>
+            ))}
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr>
+            <th scope="row">学年总分</th>
+            <td colSpan={semesters.length}>{score(yearTotal)}</td>
+          </tr>
+        </tfoot>
+      </table>
     </div>
   );
 }
 
 /* ================= 结果页 ================= */
 function ResultView({ data, onLogout }) {
-  const { rank, categories } = data;
-  const total = fmt(data.total) ?? 0;
+  const { rank, semesters } = data;
   const roundLabel = data.roundLabel ?? DEFAULT_ROUND;
 
   return (
@@ -217,104 +266,68 @@ function ResultView({ data, onLogout }) {
       <main className="page">
         {/* 概览横幅 */}
         <section className="hero">
-          <div className="hero-main">
-            <div>
-              <div className="hero-hello">你好，</div>
-              <div className="hero-name">{data.name}</div>
-              <div className="hero-tags">
-                <span className="hero-tag">学号 {data.studentId}</span>
-                {data.major && <span className="hero-tag">{data.major}</span>}
-                {data.clazz && <span className="hero-tag">{data.clazz}</span>}
-              </div>
-            </div>
-            <div className="hero-score-box">
-              <div className="hero-score-label">{roundLabel}综测总分</div>
-              <div className="hero-score">
-                {total}
-                <span className="hero-score-unit">分</span>
-              </div>
+          <div className="hero-id">
+            <div className="hero-hello">你好，</div>
+            <div className="hero-name">{data.name}</div>
+            <div className="hero-tags">
+              <span className="hero-tag">学号 {data.studentId}</span>
+              {data.major && <span className="hero-tag">{data.major}</span>}
+              {data.clazz && <span className="hero-tag">{data.clazz}</span>}
             </div>
           </div>
-          {/* 总分构成：品德 / 学业 / 文体 */}
-          <div className="comp-bar">
-            {categories.map((c) => (
-              <div
-                key={c.key}
-                className="comp-seg"
-                style={{ width: `${Math.max(2, (c.total / (total || 1)) * 100)}%`, background: CATEGORY_COLOR[c.key] }}
-              />
-            ))}
-          </div>
-          <div className="comp-legend">
-            {categories.map((c) => (
-              <span key={c.key} className="comp-legend-item">
-                <span className="comp-dot" style={{ background: CATEGORY_COLOR[c.key] }} />
-                {c.label} {fmt(c.total)}
-              </span>
-            ))}
+          <div className="hero-score-box">
+            <div className="hero-score-label">{roundLabel}综测总分</div>
+            <div className="hero-score">
+              {score(data.yearTotal)}
+              <span className="hero-score-unit">分</span>
+            </div>
+            <div className="hero-parts">
+              {semesters.map((s, i) => (
+                <Fragment key={s.label}>
+                  {i > 0 && <span className="hero-plus">+</span>}
+                  <span className="hero-part">
+                    {s.label} <b>{s.missing ? '无成绩' : score(s.total)}</b>
+                  </span>
+                </Fragment>
+              ))}
+            </div>
           </div>
         </section>
 
-        {/* 三类得分 */}
-        <Row gutter={[14, 14]} className="section">
-          {categories.map((c) => {
-            const share = total ? Math.max(0, Math.min(100, (c.total / total) * 100)) : 0;
-            return (
-              <Col xs={24} sm={8} key={c.key}>
-                <Card className="stat-tile">
-                  <div className="stat-label">
-                    <span className="stat-chip" style={{ background: CATEGORY_COLOR[c.key] }} />
-                    {c.label}
-                  </div>
-                  <div className="stat-value">{fmt(c.total)}</div>
-                  <div className="stat-track">
-                    <div className="stat-fill" style={{ width: `${share}%`, background: CATEGORY_COLOR[c.key] }} />
-                  </div>
-                  <div className="stat-share">占总分 {share.toFixed(1)}%</div>
-                </Card>
-              </Col>
-            );
-          })}
-        </Row>
+        {data.remark && (
+          <Alert className="section remark" type="info" showIcon message={<>备注：{data.remark}</>} />
+        )}
 
-        {/* 排名 */}
-        <Card className="section panel" title={<span className="panel-title">综测排名</span>} extra={<Tag color="blue" bordered={false}>{roundLabel}</Tag>}>
-          <Row>
-            <Col xs={24} sm={12} className="rank-col">
-              <RankBlock
-                title={`专业排名 · ${data.major}`}
-                rank={rank.majorRank}
-                denom={rank.majorCount}
-              />
-            </Col>
-            <Col xs={24} sm={12}>
-              <RankBlock
-                title="年级总排名"
-                rank={rank.totalRank}
-                denom={rank.totalCount}
-                absent={rank.totalRank == null}
-              />
-            </Col>
-          </Row>
-        </Card>
-
-        {/* 分项明细 */}
-        <Card className="section panel" title={<span className="panel-title">分项明细</span>}>
-          <Tabs
-            items={categories.map((c) => ({
-              key: c.key,
-              label: (
-                <span className="tab-label">
-                  <span className="comp-dot" style={{ background: CATEGORY_COLOR[c.key] }} />
-                  {c.label}
-                </span>
-              ),
-              children: <CategoryTable category={c} />,
-            }))}
+        {/* 排名 + 奖学金 */}
+        <section className="section tiles">
+          <RankTile
+            title="年级排名"
+            rank={rank.gradeRank}
+            count={rank.gradeCount}
+            tied={rank.gradeTied}
+            scope={rank.gradeScope}
           />
+          <RankTile
+            title={`专业排名 · ${data.major}`}
+            rank={rank.majorRank}
+            count={rank.majorCount}
+            tied={rank.majorTied}
+          />
+          <ScholarshipTile value={data.scholarship} />
+        </section>
+
+        {/* 学期成绩 */}
+        <Card
+          className="section panel"
+          title={<span className="panel-title">学期成绩</span>}
+          extra={<span className="panel-extra">单位：分</span>}
+          styles={{ body: { padding: 0 } }}
+        >
+          <SemesterTable semesters={semesters} yearTotal={data.yearTotal} />
         </Card>
 
         <footer className="foot-note">
+          排名按学年总分计，分数相同者名次并列<br />
           如对成绩有疑问，请在公示期内咨询学院综合素质评价负责人<br />
           数据导入时间：{data.importedAt ? new Date(data.importedAt).toLocaleString('zh-CN') : '–'}
         </footer>

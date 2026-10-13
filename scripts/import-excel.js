@@ -1,16 +1,17 @@
 /**
- * 综测总表.xlsx → data/zongce.db 导入脚本
+ * 学年度综测总表.xlsx → data/zongce.db 导入脚本
  *
- * 用法: EXCEL_PATH=/path/to/综测总表.xlsx npm run import
+ * 用法: EXCEL_PATH=/path/to/大一学年度综测总表.xlsx npm run import
+ *       （不传则读项目根目录下的「大一学年度综测总表.xlsx」）
  *
- * 说明:
- * - 主表「综测总表」的 品德总分(Q)/学业总分(X)/校园文化活动总分(AD)/文体总分(AE)/总分(AF)
- *   是公式且无缓存值，这里按原始分项重新计算: Q=Σ(G:P), X=Σ(R:W), AD=Σ(AA:AC), AE=Y+Z+AD
- * - X/AD/AE 若被人工改成静态数字（如 AD 封顶 4 分、X 核定为 0），以静态值为准，并在对应分项上加备注
- * - 主表没有的专业（本轮大数据）从其排名 sheet 补入：只有三项总分，无分项明细，不参与年级排名
- * - 排名(A 年级排名 / B 专业排名)为表中静态值，直接采信（与各专业排名 sheet 一致）
- * - 与 5 个专业排名 sheet 的静态总分做交叉校验，差异会打印报告
- * - 脏数据策略: 「缓考」/空 → 按 0 计；无法解析的文本 → 按 0 计并记录备注（页面上可见）
+ * 主表「学年度总表」前两行是表头:
+ *   年级排名 | 专业排名 | 专业 | 班级 | 学号 | 姓名 | 大一上(品德/学业/文体/综测总分) | 大一下(同) | 学年总分 | 奖学金 | 备注
+ * - 学期按表头识别：第 1 行（合并单元格）为学期名，第 2 行为分项 → 换成大二上/下等学期无需改代码
+ * - 分数、排名全部采信原表（公式均有缓存值）；导入时复核 综测=三项之和、学年=各学期之和、
+ *   排名=按学年总分并列排名（1,2,2,4…），并与各「xx排名」sheet 交叉校验，差异打印报告
+ * - 主表中的分隔行（如「大数据专业（单独排名，不参与年级总排名）」）之后的学生单独成一个年级排名组：
+ *   年级排名分母按组计人数，分隔行文字作为排名说明显示在页面上
+ * - 某学期四项全空（备注「无大一上综测成绩」等）→ 该学期记为无成绩，学年总分照原表
  */
 import XLSX from 'xlsx';
 import Database from 'better-sqlite3';
@@ -21,43 +22,76 @@ import 'dotenv/config';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = path.resolve(__dirname, '../data/zongce.db');
-const EXCEL_PATH = process.env.EXCEL_PATH || 'C:/Users/recode/Desktop/综测总表.xlsx';
-const MAIN_SHEET = '综测总表';
-const RANK_SHEETS = ['计科排名', '软工排名', '网工排名', '信管排名', '大数据排名'];
-// 主表里没有、只在排名 sheet 里给出总分的专业
-const SHEET_ONLY_MAJORS = [{ sheet: '大数据排名', major: '大数据' }];
+const EXCEL_PATH = process.env.EXCEL_PATH || path.resolve(__dirname, '../大一学年度综测总表.xlsx');
+const MAIN_SHEET = '学年度总表';
+// 第 2 行表头的分项名 → 字段
+const SEMESTER_FIELDS = { 品德总分: 'pinde', 学业总分: 'xueye', 文体总分: 'wenti', 综测总分: 'total' };
 
 const r2 = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
+const text = (v) => String(v ?? '').trim();
+const eq = (a, b) => Math.abs(a - b) <= 0.011;
 
 const warnings = [];
 
-/** 单元格 → 数值；「缓考」→ value:null（不参与计算，页面显示缓考标识）；不可解析文本按 0 计并留备注 */
-function toScore(raw, context, label) {
-  if (raw === null || raw === undefined || raw === '') return { value: 0, note: null };
-  if (typeof raw === 'number' && Number.isFinite(raw)) return { value: r2(raw), note: null };
-  const s = String(raw).trim();
-  if (s === '') return { value: 0, note: null };
-  if (s === '缓考') {
-    warnings.push(`${context} ${label}: 缓考，未进行计算`);
-    return { value: null, note: '缓考，未进行计算' };
-  }
+/** 单元格 → 数值；空 → null；无法解析的文本按 null 计并记录 */
+function toNum(raw, context, label) {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return r2(raw);
+  const s = text(raw);
+  if (s === '') return null;
   const n = Number(s);
-  if (Number.isFinite(n)) return { value: r2(n), note: null };
-  // 「1..7」「.0.5」之类
-  const note = `原始值「${s}」无法识别，按 0 分计`;
-  warnings.push(`${context} ${label}: ${note}`);
-  return { value: 0, note };
-}
-
-/** 汇总列（原为公式）若被人工改成数字则返回该值；公式单元格无缓存值 → null */
-function staticNum(raw) {
-  return typeof raw === 'number' && Number.isFinite(raw) ? r2(raw) : null;
+  if (Number.isFinite(n)) return r2(n);
+  warnings.push(`${context} ${label}: 原始值「${s}」无法识别，按空值处理`);
+  return null;
 }
 
 function toRank(raw) {
-  if (raw === null || raw === undefined || raw === '') return null;
   const n = Number(raw);
-  return Number.isInteger(n) && n > 0 ? n : null;
+  return text(raw) !== '' && Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/** 解析两行表头：基础列按名字找，学期分组按合并单元格向右延续 */
+function parseHeader(h1, h2, sheetName) {
+  const col = (name) => h1.findIndex((h) => text(h) === name);
+  const cols = {
+    gradeRank: col('年级排名'),
+    majorRank: col('专业排名'),
+    major: col('专业'),
+    clazz: col('班级'),
+    id: col('学号'),
+    name: col('姓名'),
+    yearTotal: col('学年总分'),
+    scholarship: col('奖学金'),
+    remark: col('备注'),
+  };
+  const missing = ['gradeRank', 'majorRank', 'major', 'id', 'name', 'yearTotal'].filter((k) => cols[k] < 0);
+  if (missing.length) throw new Error(`sheet「${sheetName}」表头缺少列: ${missing.join(', ')}`);
+
+  const semesters = [];
+  let current = null;
+  for (let c = 0; c < h2.length; c += 1) {
+    const field = SEMESTER_FIELDS[text(h2[c])];
+    if (!field) {
+      current = null;
+      continue;
+    }
+    if (text(h1[c])) {
+      current = { label: text(h1[c]), cols: {} };
+      semesters.push(current);
+    }
+    if (current) current.cols[field] = c;
+  }
+  for (const s of semesters) {
+    const lack = Object.values(SEMESTER_FIELDS).filter((f) => s.cols[f] === undefined);
+    if (lack.length) throw new Error(`sheet「${sheetName}」学期「${s.label}」缺少分项列: ${lack.join(', ')}`);
+  }
+  if (!semesters.length) throw new Error(`sheet「${sheetName}」未识别到学期分组（第 2 行应为 品德总分/学业总分/文体总分/综测总分）`);
+  return { cols, semesters };
+}
+
+/** 并列排名（1,2,2,4…）：名次 = 1 + 学年总分严格更高的人数 */
+function competitionRanks(list) {
+  const totals = list.map((s) => s.data.yearTotal).sort((a, b) => b - a);
+  return list.map((s) => 1 + totals.findIndex((t) => t <= s.data.yearTotal + 1e-9));
 }
 
 // ---------- 1. 读主表 ----------
@@ -67,33 +101,43 @@ if (!fs.existsSync(EXCEL_PATH)) {
 }
 console.log(`[import] 读取 ${EXCEL_PATH}`);
 const wb = XLSX.readFile(EXCEL_PATH, { cellDates: false });
+if (!wb.Sheets[MAIN_SHEET]) {
+  console.error(`[fatal] 找不到主表 sheet「${MAIN_SHEET}」，现有: ${wb.SheetNames.join(', ')}`);
+  process.exit(1);
+}
 
-const mainRows = XLSX.utils.sheet_to_json(wb.Sheets[MAIN_SHEET], {
+const [h1 = [], h2 = [], ...mainRows] = XLSX.utils.sheet_to_json(wb.Sheets[MAIN_SHEET], {
   header: 1,
   raw: true,
   defval: null,
-  range: 2, // 前两行是表头，数据从第 3 行开始
 });
+const { cols: C, semesters: SEMESTERS } = parseHeader(h1, h2, MAIN_SHEET);
+console.log(`[import] 识别到学期: ${SEMESTERS.map((s) => s.label).join(' / ')}`);
 
-const PINDE_ITEMS = [
-  '基础分', '献血', '退役复学', '优秀学生干部、国旗班', '优秀班导生',
-  '寝室', '早晚自习', '实践、志愿', '教室卫生', '其他',
-];
-const XUEYE_ITEMS = [
-  '学业成绩加权', '全科额外加分', '不及格学业扣分', '市级以上学术竞赛', '职业技能证书', '科研',
-];
-const WENTI_ITEMS = [
-  '基础分', '学生干部', '非专业领域文体实践', '校园文化活动', '期刊投稿',
-];
-
+// 年级排名分组：分隔行之前为第 0 组（全年级），每遇到一条分隔行开启新组
+const groups = [{ scope: null, students: [] }];
 const students = [];
 const seenIds = new Set();
+let sumMismatches = 0;
+
 for (const row of mainRows) {
-  const studentId = String(row[4] ?? '').trim();
-  const name = String(row[5] ?? '').trim();
-  if (!studentId && !name) continue; // 空行
-  if (!studentId || !name) {
-    warnings.push(`跳过不完整行: 学号=${JSON.stringify(row[4])} 姓名=${JSON.stringify(row[5])}`);
+  const studentId = text(row[C.id]);
+  const name = text(row[C.name]);
+  if (!/^\d{6,}$/.test(studentId)) {
+    const caption = row.map(text).find((v) => v !== '');
+    if (!caption) continue; // 空行
+    if (name) {
+      warnings.push(`跳过学号异常的行: 学号=${JSON.stringify(row[C.id])} 姓名=${name}`);
+      continue;
+    }
+    // 「大数据专业（单独排名，不参与年级总排名）」→「大数据专业单独排名，不参与年级总排名」
+    const scope = caption.replace(/[（()）]/g, '');
+    groups.push({ scope, students: [] });
+    console.log(`[import] 分隔行「${caption}」：其后学生单独计年级排名`);
+    continue;
+  }
+  if (!name) {
+    warnings.push(`跳过缺少姓名的行: 学号=${studentId}`);
     continue;
   }
   if (seenIds.has(studentId)) {
@@ -101,162 +145,120 @@ for (const row of mainRows) {
     continue;
   }
   seenIds.add(studentId);
-
-  const major = String(row[2] ?? '').trim();
-  const clazz = String(row[3] ?? '').trim();
   const ctx = `${studentId} ${name}`;
 
-  const mkItems = (cols, labels, group) =>
-    labels.map((label, i) => {
-      const { value, note } = toScore(row[cols[i]], ctx, `${group}-${label}`);
-      return note ? { label, value, note } : { label, value };
-    });
-  const sum = (items) => r2(items.reduce((a, b) => a + (b.value ?? 0), 0)); // 缓考(null)按 0 参与合计
+  const semesters = SEMESTERS.map(({ label, cols }) => {
+    const v = Object.fromEntries(
+      Object.entries(cols).map(([field, c]) => [field, toNum(row[c], ctx, `${label}-${field}`)])
+    );
+    if (Object.values(v).every((x) => x === null)) return { label, missing: true };
+    const parts = [v.pinde, v.xueye, v.wenti];
+    if (parts.some((x) => x === null) || v.total === null) {
+      warnings.push(`${ctx} ${label}: 分项不完整（品德/学业/文体/综测 = ${parts.join('/')}/${v.total}）`);
+    } else if (!eq(r2(parts.reduce((a, b) => a + b, 0)), v.total)) {
+      sumMismatches += 1;
+      warnings.push(`${ctx} ${label}: 综测总分 ${v.total} ≠ 三项之和 ${r2(parts.reduce((a, b) => a + b, 0))}，采信原表`);
+    }
+    return { label, ...v };
+  });
 
-  const pindeItems = mkItems([6, 7, 8, 9, 10, 11, 12, 13, 14, 15], PINDE_ITEMS, '品德');
-  const xueyeItems = mkItems([17, 18, 19, 20, 21, 22], XUEYE_ITEMS, '学业');
-  const wentiItems = mkItems([24, 25, 26, 27, 28], WENTI_ITEMS, '文体');
-
-  const pindeTotal = sum(pindeItems); // Q = Σ(G:P)
-
-  // X 学业总分 = Σ(R:W)；原表个别行把公式改成了人工核定的静态值（如核定为 0），以静态值为准
-  const xueyeCalc = sum(xueyeItems);
-  const xueyeStatic = staticNum(row[23]);
-  const xueyeTotal = xueyeStatic ?? xueyeCalc;
-  if (xueyeStatic !== null && xueyeStatic !== xueyeCalc) {
-    const item = xueyeItems.find((it) => it.value < 0) ?? xueyeItems[0];
-    item.note = `学业总分按原表核定为 ${xueyeStatic} 分（分项合计 ${xueyeCalc}）`;
-    warnings.push(`${ctx} 学业总分静态值 ${xueyeStatic} ≠ 分项合计 ${xueyeCalc}，采信静态值`);
+  const semesterSum = r2(semesters.reduce((a, s) => a + (s.total ?? 0), 0));
+  let yearTotal = toNum(row[C.yearTotal], ctx, '学年总分');
+  if (yearTotal === null) {
+    warnings.push(`${ctx} 学年总分为空，按各学期综测总分之和 ${semesterSum} 计`);
+    yearTotal = semesterSum;
+  } else if (!eq(yearTotal, semesterSum)) {
+    sumMismatches += 1;
+    warnings.push(`${ctx} 学年总分 ${yearTotal} ≠ 各学期之和 ${semesterSum}，采信原表`);
   }
 
-  // 文体: AE = Y + Z + AD，AD 校园文化活动总分 = Σ(AA:AC)，人工改成静态值即为封顶后的核定分
-  const cultureCalc = sum(wentiItems.slice(2));
-  const cultureStatic = staticNum(row[29]);
-  const culture = cultureStatic ?? cultureCalc;
-  if (cultureStatic !== null && cultureStatic !== cultureCalc) {
-    wentiItems[3].note = `校园文化活动类合计 ${cultureCalc} 分，按原表核定计 ${cultureStatic} 分`;
-    warnings.push(`${ctx} 校园文化活动总分静态值 ${cultureStatic} ≠ 分项合计 ${cultureCalc}，采信静态值`);
-  }
-  const wentiTotal = staticNum(row[30]) ?? r2((wentiItems[0].value ?? 0) + (wentiItems[1].value ?? 0) + culture);
-  const total = r2(pindeTotal + xueyeTotal + wentiTotal);
-
-  students.push({
+  const student = {
     studentId,
     name,
-    major,
-    clazz,
+    major: text(row[C.major]),
+    clazz: C.clazz >= 0 ? text(row[C.clazz]) : '',
     data: {
-      pinde: { items: pindeItems, total: pindeTotal },
-      xueye: { items: xueyeItems, total: xueyeTotal },
-      wenti: { items: wentiItems, total: wentiTotal },
-      total,
-      majorRank: toRank(row[1]),  // B
-      totalRank: toRank(row[0]),  // A（大数据专业为空 → null）
+      semesters,
+      yearTotal,
+      gradeRank: toRank(row[C.gradeRank]),
+      majorRank: toRank(row[C.majorRank]),
+      scholarship: C.scholarship >= 0 ? text(row[C.scholarship]) || null : null,
+      remark: C.remark >= 0 ? text(row[C.remark]) || null : null,
     },
+  };
+  if (student.data.gradeRank === null) warnings.push(`${ctx} 年级排名为空`);
+  if (student.data.majorRank === null) warnings.push(`${ctx} 专业排名为空`);
+  students.push(student);
+  groups.at(-1).students.push(student);
+}
+
+// ---------- 2. 人数分母 + 并列标记 + 排名复核 ----------
+let rankMismatches = 0;
+function annotate(list, rankKey, countKey, tiedKey, label) {
+  const freq = new Map();
+  for (const s of list) freq.set(s.data[rankKey], (freq.get(s.data[rankKey]) ?? 0) + 1);
+  const calc = competitionRanks(list);
+  list.forEach((s, i) => {
+    s.data[countKey] = list.length;
+    s.data[tiedKey] = s.data[rankKey] !== null && freq.get(s.data[rankKey]) > 1;
+    if (s.data[rankKey] !== calc[i]) {
+      rankMismatches += 1;
+      warnings.push(`${s.studentId} ${s.name} ${label}: 原表 ${s.data[rankKey]}，按学年总分应为 ${calc[i]}，采信原表`);
+    }
   });
 }
 
-// ---------- 1b. 只出现在排名 sheet、不在主表里的专业（本轮大数据）----------
-// 排名 sheet 只有三项总分，没有分项明细；不参与年级排名（totalRank=null）
-for (const { sheet, major } of SHEET_ONLY_MAJORS) {
-  const ws = wb.Sheets[sheet];
-  if (!ws) continue;
-  const [header = [], ...grid] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
-  const col = (want) => header.findIndex((h) => String(h ?? '').trim() === want);
-  const [cRank, cClass, cId, cName, cP, cX, cW] =
-    ['排名', '班级', '学号', '姓名', '品德总分', '学业总分', '文体总分'].map(col);
-  if ([cRank, cId, cName, cP, cX, cW].some((c) => c < 0)) {
-    warnings.push(`sheet「${sheet}」表头识别失败，${major}专业未导入`);
-    continue;
-  }
-  let added = 0;
-  for (const row of grid) {
-    const studentId = String(row[cId] ?? '').trim();
-    const name = String(row[cName] ?? '').trim();
-    if (!/^\d{6,}$/.test(studentId)) continue;
-    if (seenIds.has(studentId)) continue; // 主表已有，以主表为准
-    seenIds.add(studentId);
-    const ctx = `${studentId} ${name}`;
-    const cat = (c, label) => ({ items: [], total: toScore(row[c], ctx, label).value ?? 0 });
-    const pinde = cat(cP, '品德总分');
-    const xueye = cat(cX, '学业总分');
-    const wenti = cat(cW, '文体总分');
-    students.push({
-      studentId,
-      name,
-      major,
-      clazz: String(row[cClass] ?? '').trim(),
-      data: {
-        pinde, xueye, wenti,
-        total: r2(pinde.total + xueye.total + wenti.total),
-        majorRank: toRank(row[cRank]),
-        totalRank: null,
-      },
-    });
-    added += 1;
-  }
-  console.log(`[import] 「${sheet}」补充 ${added} 名${major}学生（主表无该专业，仅三项总分）`);
+for (const g of groups) {
+  annotate(g.students, 'gradeRank', 'gradeCount', 'gradeTied', '年级排名');
+  for (const s of g.students) s.data.gradeScope = g.scope;
 }
-
-// ---------- 2. 读专业排名 sheet 做交叉校验 ----------
-const refTotals = new Map(); // 学号 -> {品德, 学业, 文体, 总分}
-for (const sheetName of RANK_SHEETS) {
-  const ws = wb.Sheets[sheetName];
-  if (!ws) {
-    warnings.push(`找不到 sheet「${sheetName}」，跳过校验`);
-    continue;
-  }
-  const grid = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null, range: 1 });
-  const headerRow = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null })[0] ?? [];
-  const col = (want) => headerRow.findIndex((h) => String(h ?? '').trim() === want);
-  const cId = col('学号');
-  const cP = col('品德总分');
-  const cX = col('学业总分');
-  const cW = col('文体总分');
-  const cT = col('总分');
-  if (cId < 0 || cT < 0) {
-    warnings.push(`sheet「${sheetName}」表头识别失败，跳过校验`);
-    continue;
-  }
-  for (const row of grid) {
-    const id = String(row[cId] ?? '').trim();
-    if (!id || !/^\d{6,}$/.test(id)) continue;
-    refTotals.set(id, {
-      p: r2(Number(row[cP]) || 0),
-      x: r2(Number(row[cX]) || 0),
-      w: r2(Number(row[cW]) || 0),
-      // 总分列为公式且无缓存值时按三项相加
-      t: typeof row[cT] === 'number' ? r2(row[cT]) : r2((Number(row[cP]) || 0) + (Number(row[cX]) || 0) + (Number(row[cW]) || 0)),
-    });
-  }
-}
-
-let mismatches = 0;
-const mmSamples = [];
+const byMajor = new Map();
 for (const s of students) {
-  const ref = refTotals.get(s.studentId);
-  if (!ref) continue;
-  const { pinde, xueye, wenti, total } = s.data;
-  const eq = (a, b) => Math.abs(a - b) <= 0.011;
-  if (!eq(pinde.total, ref.p) || !eq(xueye.total, ref.x) || !eq(wenti.total, ref.w) || !eq(total, ref.t)) {
-    mismatches += 1;
-    if (mmSamples.length < 10) {
-      mmSamples.push(
-        `  ${s.studentId} ${s.name}: 计算(${pinde.total}/${xueye.total}/${wenti.total}/${total}) ` +
-        `vs 排名sheet(${ref.p}/${ref.x}/${ref.w}/${ref.t})`
+  if (!byMajor.has(s.major)) byMajor.set(s.major, []);
+  byMajor.get(s.major).push(s);
+}
+for (const [major, list] of byMajor) annotate(list, 'majorRank', 'majorCount', 'majorTied', `专业排名(${major})`);
+
+// ---------- 3. 与各专业「xx排名」sheet 交叉校验 ----------
+const byId = new Map(students.map((s) => [s.studentId, s]));
+let crossMismatches = 0;
+const crossReport = [];
+for (const sheetName of wb.SheetNames.filter((n) => n !== MAIN_SHEET && n.endsWith('排名'))) {
+  const [s1 = [], s2 = [], ...grid] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], {
+    header: 1,
+    raw: true,
+    defval: null,
+  });
+  let cols;
+  try {
+    ({ cols } = parseHeader(s1, s2, sheetName));
+  } catch (e) {
+    warnings.push(`${e.message}，跳过交叉校验`);
+    continue;
+  }
+  let checked = 0;
+  let diff = 0;
+  for (const row of grid) {
+    const id = text(row[cols.id]);
+    if (!/^\d{6,}$/.test(id)) continue;
+    const s = byId.get(id);
+    if (!s) {
+      diff += 1;
+      warnings.push(`「${sheetName}」中的 ${id} ${text(row[cols.name])} 不在主表`);
+      continue;
+    }
+    checked += 1;
+    const t = toNum(row[cols.yearTotal], id, '学年总分');
+    if (t === null || !eq(t, s.data.yearTotal) || toRank(row[cols.gradeRank]) !== s.data.gradeRank || toRank(row[cols.majorRank]) !== s.data.majorRank) {
+      diff += 1;
+      warnings.push(
+        `${id} ${s.name}: 主表(学年 ${s.data.yearTotal} / 年级 ${s.data.gradeRank} / 专业 ${s.data.majorRank}) ` +
+        `vs「${sheetName}」(${t} / ${toRank(row[cols.gradeRank])} / ${toRank(row[cols.majorRank])})`
       );
     }
   }
-}
-
-// ---------- 3. 专业人数 / 总人数 ----------
-const majorCount = {};
-for (const s of students) majorCount[s.major] = (majorCount[s.major] ?? 0) + 1;
-const totalCount = students.length;
-const rankedCount = students.filter((s) => s.data.totalRank != null).length; // 年级排名分母（不含不参与年级排名的专业）
-for (const s of students) {
-  s.data.majorCount = majorCount[s.major] ?? null;
-  s.data.totalCount = rankedCount;
+  crossMismatches += diff;
+  crossReport.push(`${sheetName} ${checked} 人/${diff} 处不一致`);
 }
 
 // ---------- 4. 写库 ----------
@@ -282,23 +284,29 @@ const insert = db.prepare(
   'INSERT INTO students (student_id, name, college, major, clazz, data) VALUES (?, ?, ?, ?, ?, ?)'
 );
 const insertMeta = db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)');
+const mismatchTotal = sumMismatches + rankMismatches + crossMismatches;
 db.transaction(() => {
   for (const s of students) {
     insert.run(s.studentId, s.name, null, s.major, s.clazz, JSON.stringify(s.data));
   }
   insertMeta.run('imported_at', new Date().toISOString());
-  insertMeta.run('student_count', String(totalCount));
+  insertMeta.run('student_count', String(students.length));
   insertMeta.run('source_file', path.basename(EXCEL_PATH));
-  insertMeta.run('mismatch_count', String(mismatches));
+  insertMeta.run('mismatch_count', String(mismatchTotal));
 })();
 db.close();
 
 // ---------- 5. 报告 ----------
 console.log('──────────────────────────────────────');
-console.log(`[import] 完成: ${totalCount} 名学生 → ${DB_PATH}`);
-console.log('[import] 专业分布:', JSON.stringify(majorCount));
-console.log(`[import] 与排名 sheet 总分校验: ${mismatches} 处不一致（>0 处请人工核对）`);
-mmSamples.forEach((l) => console.log(l));
+console.log(`[import] 完成: ${students.length} 名学生 → ${DB_PATH}`);
+console.log('[import] 专业分布:', JSON.stringify(Object.fromEntries([...byMajor].map(([m, l]) => [m, l.length]))));
+console.log(
+  '[import] 年级排名分组:',
+  groups.filter((g) => g.students.length).map((g) => `${g.scope ?? '全年级'} ${g.students.length} 人`).join('；')
+);
+console.log(`[import] 分数复核（综测=三项之和、学年=各学期之和）: ${sumMismatches} 处不一致`);
+console.log(`[import] 排名复核（按学年总分并列排名）: ${rankMismatches} 处不一致`);
+console.log(`[import] 排名 sheet 交叉校验: ${crossReport.length ? crossReport.join('；') : '⚠ 未找到任何排名 sheet'}`);
+if (mismatchTotal > 0) console.log('[import] ⚠ 存在不一致，请对照下方警告人工核对');
 console.log(`[import] 数据警告 ${warnings.length} 条:`);
 warnings.forEach((w) => console.log(`  - ${w}`));
-if (!refTotals.size) console.log('[import] ⚠ 未读到任何排名 sheet，交叉校验未生效');

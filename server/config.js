@@ -18,7 +18,7 @@ export default {
   // 生产环境缺密钥时 index.js 会拒绝启动；开发环境给默认值方便联调
   jwtSecret: env('JWT_SECRET', isProd ? '' : 'dev-only-secret'),
   sessionTtl: num('SESSION_TTL', 12 * 3600),
-  roundLabel: env('ROUND_LABEL', '第二轮'),
+  roundLabel: env('ROUND_LABEL', '大一学年度'),
   casBaseUrl: env('CAS_BASE_URL', 'https://cas.dlufl.edu.cn'),
   isProd,
 };

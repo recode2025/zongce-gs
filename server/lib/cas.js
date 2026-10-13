@@ -105,19 +105,28 @@ function parseCasAttributes(xml) {
   return attrs;
 }
 
-async function casFetch(url, options = {}) {
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      'User-Agent': UA,
-      ...(options.body ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}),
-      ...(options.cookie ? { Cookie: options.cookie } : {}),
-      ...(options.headers ?? {}),
-    },
-    redirect: options.redirect ?? 'manual', // 全程手工跟 Cookie/跳转
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
-  return res;
+/** 网络层失败（DNS/连接/TLS/超时）统一转成 CAS_UNAVAILABLE，并把真实原因记进日志（不含表单内容） */
+async function casFetch(step, url, options = {}) {
+  try {
+    return await fetch(url, {
+      ...options,
+      headers: {
+        'User-Agent': UA,
+        ...(options.body ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}),
+        ...(options.cookie ? { Cookie: options.cookie } : {}),
+        ...(options.headers ?? {}),
+      },
+      redirect: options.redirect ?? 'manual', // 全程手工跟 Cookie/跳转
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch (e) {
+    const cause = e.cause ?? e;
+    console.error(
+      `[cas] ${step} 请求失败 ${options.method ?? 'GET'} ${new URL(url).origin}${new URL(url).pathname}:`,
+      e.name, cause.code ?? '', cause.message ?? String(cause)
+    );
+    throw new CasError('CAS_UNAVAILABLE', '无法连接学校统一认证服务，请稍后再试');
+  }
 }
 
 /**
@@ -133,12 +142,7 @@ export async function casLogin(username, password) {
 
   // ---- Step 1: 登录页（lt / execution） ----
   const bag = new CookieBag();
-  let res;
-  try {
-    res = await casFetch(loginUrl);
-  } catch (e) {
-    throw new CasError('CAS_UNAVAILABLE', '无法连接学校统一认证服务，请稍后再试');
-  }
+  let res = await casFetch('step1-登录页', loginUrl);
   bag.absorb(res);
   const html = await res.text();
   if (process.env.DEBUG_CAS) fs.writeFileSync(process.env.DEBUG_CAS, html);
@@ -158,11 +162,7 @@ export async function casLogin(username, password) {
     _eventId: 'submit',
   }).toString();
 
-  try {
-    res = await casFetch(loginUrl, { method: 'POST', body: form, cookie: bag.toString() });
-  } catch (e) {
-    throw new CasError('CAS_UNAVAILABLE', '无法连接学校统一认证服务，请稍后再试');
-  }
+  res = await casFetch('step2-提交凭证', loginUrl, { method: 'POST', body: form, cookie: bag.toString() });
   bag.absorb(res);
 
   if (!bag.has('CASTGC')) {
@@ -181,13 +181,9 @@ export async function casLogin(username, password) {
   }
 
   // ---- Step 3: 换 service ticket ----
-  try {
-    res = await casFetch(`${CAS_BASE}/login?service=${encodeURIComponent(SERVICE_URL)}`, {
-      cookie: bag.toString(),
-    });
-  } catch (e) {
-    throw new CasError('CAS_UNAVAILABLE', '无法连接学校统一认证服务，请稍后再试');
-  }
+  res = await casFetch('step3-换票据', `${CAS_BASE}/login?service=${encodeURIComponent(SERVICE_URL)}`, {
+    cookie: bag.toString(),
+  });
   const location = res.headers.get('location') ?? '';
   const ticketM = location.match(/[?&]ticket=([^&#]+)/);
   if (!ticketM) {
@@ -196,15 +192,11 @@ export async function casLogin(username, password) {
   const ticket = decodeURIComponent(ticketM[1]);
 
   // ---- Step 4: proxyValidate 取身份 ----
-  try {
-    res = await casFetch(`${CAS_BASE}/proxyValidate`, {
-      method: 'POST',
-      body: new URLSearchParams({ service: SERVICE_URL, ticket }).toString(),
-      redirect: 'follow',
-    });
-  } catch (e) {
-    throw new CasError('CAS_UNAVAILABLE', '无法连接学校统一认证服务，请稍后再试');
-  }
+  res = await casFetch('step4-取身份', `${CAS_BASE}/proxyValidate`, {
+    method: 'POST',
+    body: new URLSearchParams({ service: SERVICE_URL, ticket }).toString(),
+    redirect: 'follow',
+  });
   const xml = await res.text();
   if (process.env.DEBUG_CAS) fs.writeFileSync(`${process.env.DEBUG_CAS}.xml`, xml);
   const attrs = parseCasAttributes(xml);

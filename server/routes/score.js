@@ -30,25 +30,21 @@ router.get('/api/score', requireSession, queryLimiter, (req, res) => {
       clazz: record.clazz,
       roundLabel: config.roundLabel,
       importedAt: store.meta.importedAt,
-      categories: [
-        { key: 'pinde', label: '品德行为表现', ...fmtCategory(record.data.pinde) },
-        { key: 'xueye', label: '学业表现', ...fmtCategory(record.data.xueye) },
-        { key: 'wenti', label: '文体表现', ...fmtCategory(record.data.wenti) },
-      ],
-      total: record.data.total ?? null,
+      yearTotal: record.data.yearTotal ?? null,
+      semesters: record.data.semesters ?? [], // [{label, pinde, xueye, wenti, total} | {label, missing: true}]
       rank: {
+        gradeRank: record.data.gradeRank ?? null,
+        gradeCount: record.data.gradeCount ?? null,
+        gradeTied: !!record.data.gradeTied,
+        gradeScope: record.data.gradeScope ?? null, // 单独排名的专业（如大数据）→ 排名说明
         majorRank: record.data.majorRank ?? null,
         majorCount: record.data.majorCount ?? null,
-        totalRank: record.data.totalRank ?? null, // 大数据专业不参与年级排名 → null
-        totalCount: record.data.totalCount ?? null,
+        majorTied: !!record.data.majorTied,
       },
+      scholarship: record.data.scholarship ?? null,
+      remark: record.data.remark ?? null,
     },
   });
-});
-
-const fmtCategory = (cat) => ({
-  total: cat?.total ?? 0,
-  items: cat?.items ?? [],
 });
 
 /** 轻量状态接口（探活/前端判断登录态） */
